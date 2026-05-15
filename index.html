@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Mini App Ads</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+    <!-- TOP BAR -->
+    <div class="top-bar">
+        <div class="user">
+            <img id="avatar" class="avatar" src="https://i.pravatar.cc/100">
+            <div>
+                <div class="name" id="username">User</div>
+                <div class="uid" id="userid">ID: 000000</div>
+            </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+            <div class="balance-box">
+                <div style="font-size:10px;color:#8EA2B1" class="balance-label" data-i18n="balance">BALANCE</div>
+                <div class="balance-mini" id="balanceTop">$0.0000</div>
+            </div>
+            <button class="lang-btn" id="langBtn">RU</button>
+        </div>
+    </div>
+
+    <!-- HOME PAGE -->
+    <div class="page active" id="home">
+        <div class="top-card">
+            <div class="balance" id="balance">$0.0000</div>
+            <div class="level-row">
+                <div class="level" id="level">Level 1 • 0/100</div>
+                <div class="next-level-reward" id="nextLevelReward">
+                    <span class="arrow-icon">↑</span>
+                    <span class="next-value" id="nextRewardValue">+$0.0018</span>
+                </div>
+            </div>
+            <div class="progress"><div class="fill" id="xpFill"></div></div>
+            <button class="btn" id="autoBtn">AUTO OFF</button>
+        </div>
+        <div id="cards"></div>
+    </div>
+
+    <!-- OTHER PAGES -->
+    <div class="page" id="friends"><div class="card"><div data-i18n="friends">Друзья</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">👥 Пригласите друга — получите бонус 0.005$</div></div></div>
+    <div class="page" id="boosts"><div class="card"><div data-i18n="boosts">Бусты</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">⚡ Ускоренный заработок (скоро)</div></div></div>
+    <div class="page" id="tasks"><div class="card"><div data-i18n="tasks">Задания</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">✅ Выполняй задания за монеты (скоро)</div></div></div>
+    <div class="page" id="wallet"><div class="card"><div data-i18n="wallet">Кошелек</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">💎 Ваш адрес TON: EQD... (тест)</div></div></div>
+</div>
+
+<!-- BOTTOM NAVIGATION -->
+<div class="bottom-nav">
+    <div class="nav-item active" data-page="home">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 10.5L12 3l9 7.5"/><path d="M5 10v10h5v-6h4v6h5V10"/></svg>
+        <div data-i18n="home">Главная</div>
+    </div>
+    <div class="nav-item" data-page="friends">
+        <svg class="nav-icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M4 20c0-3 3-5 5-5s5 2 5 5"/><path d="M13 20c.3-2.5 2.2-4.5 4.5-4.5S22 17.5 22 20"/></svg>
+        <div data-i18n="friends">Друзья</div>
+    </div>
+    <div class="nav-item" data-page="boosts">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M13 2L4 14h7l-1 8 10-14h-7l0-6z"/></svg>
+        <div data-i18n="boosts">Бусты</div>
+    </div>
+    <div class="nav-item" data-page="tasks">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M9 11l2 2 4-5"/><path d="M5 4h14v16H5z"/></svg>
+        <div data-i18n="tasks">Задания</div>
+    </div>
+    <div class="nav-item" data-page="wallet">
+        <svg class="nav-icon" viewBox="0 0 24 24"><path d="M3 7h15a3 3 0 013 3v7a3 3 0 01-3 3H6a3 3 0 01-3-3V7z"/><path d="M16 11h5v4h-5a2 2 0 010-4z"/></svg>
+        <div data-i18n="wallet">Кошелек</div>
+    </div>
+</div>
+
+<script src="js/lang.js"></script>
+<script src="js/api.js"></script>      <!-- НОВЫЙ файл -->
+<script src="js/app.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/auto.js"></script>
+<script src="js/main.js"></script>
+
+</body>
+</html>

@@ -1,90 +1,125 @@
-// ============= GIGAPUB ИНТЕГРАЦИЯ =============
-let gigapubInitialized = false;
-let gigapubPlacementId = '6724'; // Твой ID
+// ============= КАСКАДНАЯ РЕКЛАМА: GigaPub → Фолбэк =============
 
-// Инициализация Gigapub
-function initGigapub() {
-    console.log('🔄 Инициализация Gigapub...');
+// 1. GIGAPUB (основной, с авто-переключением серверов)
+(function() {
+    const projectId = '6724'; // Твой ID
+    const servers = [
+        'https://ad.gigapub.tech',
+        'https://ru-ad.gigapub.tech'
+    ];
+    let currentServer = 0;
+    let timeoutId;
     
-    // Ждём загрузки SDK
-    if (typeof Gigapub === 'undefined') {
-        console.log('⏳ Gigapub SDK ещё не загружен, ждём...');
-        setTimeout(() => initGigapub(), 500);
-        return false;
-    }
-    
-    console.log('✅ Gigapub SDK найден:', typeof Gigapub);
-    
-    try {
-        Gigapub.init({
-            placementId: gigapubPlacementId,
-            debug: true,
-            onReady: () => {
-                console.log('✅ Gigapub готов к работе! Placement ID:', gigapubPlacementId);
-                gigapubInitialized = true;
-            },
-            onError: (error) => {
-                console.error('❌ Gigapub ошибка:', error);
-                gigapubInitialized = false;
+    function loadGigapub() {
+        const script = document.createElement('script');
+        script.async = true;
+        script.src = servers[currentServer] + '/script?id=' + projectId;
+        
+        timeoutId = setTimeout(() => {
+            script.onload = script.onerror = null;
+            script.remove();
+            currentServer++;
+            if (currentServer < servers.length) {
+                loadGigapub();
+            } else {
+                console.warn('⚠️ GigaPub: все серверы недоступны');
+                window.gigapubAvailable = false;
             }
-        });
-        return true;
-    } catch (error) {
-        console.error('❌ Ошибка инициализации:', error);
-        return false;
+        }, 15000);
+        
+        script.onload = () => {
+            clearTimeout(timeoutId);
+            console.log('✅ GigaPub загружен с сервера:', servers[currentServer]);
+            window.gigapubAvailable = true;
+        };
+        
+        script.onerror = () => {
+            clearTimeout(timeoutId);
+            script.remove();
+            currentServer++;
+            if (currentServer < servers.length) {
+                loadGigapub();
+            } else {
+                console.warn('⚠️ GigaPub: все серверы недоступны');
+                window.gigapubAvailable = false;
+            }
+        };
+        
+        document.head.appendChild(script);
     }
+    
+    loadGigapub();
+})();
+
+// Глобальный флаг доступности
+window.gigapubAvailable = false;
+
+// Функция показа рекламы GigaPub
+async function showGigaPubAd() {
+    return new Promise((resolve) => {
+        if (!window.gigapubAvailable || typeof window.showGiga === 'undefined') {
+            console.warn('⚠️ GigaPub не готов');
+            resolve(false);
+            return;
+        }
+        
+        console.log('📢 Пробуем GigaPub...');
+        
+        try {
+            window.showGiga()
+                .then(() => {
+                    console.log('✅ GigaPub: реклама показана, награда выдана');
+                    resolve(true);
+                })
+                .catch((error) => {
+                    console.warn('❌ GigaPub ошибка:', error);
+                    resolve(false);
+                });
+        } catch (error) {
+            console.warn('❌ GigaPub исключение:', error);
+            resolve(false);
+        }
+    });
 }
 
-// Показ рекламы
-function showGigapubAd(blockId, onRewardCallback) {
+// Основная каскадная функция (сначала GigaPub, потом симуляция)
+async function showAdWithCascade() {
+    console.log('🎬 Запуск показа рекламы (GigaPub → симуляция)');
+    
+    // Пытаемся показать GigaPub
+    const gigapubShown = await showGigaPubAd();
+    if (gigapubShown) {
+        return true;
+    }
+    
+    // Если GigaPub не сработал — используем простую симуляцию
+    console.log('🎮 GigaPub недоступен, используем встроенную симуляцию');
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            console.log('✅ Симуляция: реклама "просмотрена"');
+            resolve(true);
+        }, 1500);
+    });
+}
+
+// Универсальная функция для вызова из приложения
+async function showRewardedAd(blockId, onRewardCallback) {
     console.log('📺 Показ рекламы для блока', blockId);
     
-    // Если не инициализирован, пробуем ещё раз
-    if (!gigapubInitialized) {
-        console.log('🔄 Gigapub не инициализирован, пробуем...');
-        initGigapub();
-        setTimeout(() => {
-            showGigapubAd(blockId, onRewardCallback);
-        }, 500);
-        return;
-    }
+    const success = await showAdWithCascade();
     
-    if (typeof Gigapub === 'undefined' || !Gigapub.showRewardedAd) {
-        console.error('❌ Gigapub.showRewardedAd не доступен');
-        if (onRewardCallback) onRewardCallback(false, null);
-        return;
-    }
-    
-    try {
-        Gigapub.showRewardedAd({
-            placementId: gigapubPlacementId,
-            onReward: (reward) => {
-                console.log('🎁 Награда от Gigapub:', reward);
-                if (onRewardCallback) {
-                    onRewardCallback(true, reward);
-                }
-            },
-            onClose: () => {
-                console.log('🚪 Реклама закрыта без награды');
-                if (onRewardCallback) {
-                    onRewardCallback(false, null);
-                }
-            },
-            onError: (error) => {
-                console.error('❌ Ошибка показа рекламы:', error);
-                if (onRewardCallback) {
-                    onRewardCallback(false, null);
-                }
-            }
-        });
-    } catch (error) {
-        console.error('❌ Исключение:', error);
-        if (onRewardCallback) onRewardCallback(false, null);
+    if (success) {
+        console.log('✅ Реклама успешно показана, начисляем награду');
+        if (onRewardCallback) onRewardCallback(true);
+    } else {
+        console.log('❌ Реклама не показана');
+        if (onRewardCallback) onRewardCallback(false);
     }
 }
 
 // Экспорт
-window.initGigapub = initGigapub;
-window.showGigapubAd = showGigapubAd;
+window.showGigapubAd = showRewardedAd;
+window.showAdWithCascade = showAdWithCascade;
+window.showGigaPubAd = showGigaPubAd;
 
-console.log('✅ gigapub.js загружен');
+console.log('✅ gigapub.js загружен (каскадная система)');

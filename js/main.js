@@ -37,26 +37,6 @@ function bindEvents() {
     }
 }
 
-function resetUserData() {
-    if (window.user) {
-        window.user.balance = 0;
-        window.user.level = 1;
-        window.user.ads = 0;
-    }
-    if (window.blocks) {
-        window.blocks = [
-            { id: 1, v: 0, l: 0 },
-            { id: 2, v: 0, l: 0 },
-            { id: 3, v: 0, l: 0 }
-        ];
-    }
-    if (window.auto !== undefined) window.auto = false;
-    if (window.autoLoopActive !== undefined) window.autoLoopActive = false;
-    if (window.clearAllTimers) window.clearAllTimers();
-    if (window.fullRender) window.fullRender();
-    if (window.saveProgress) window.saveProgress();
-}
-
 // ============= ЗАГРУЗКА ПРИЛОЖЕНИЯ =============
 document.addEventListener("DOMContentLoaded", async () => {
     console.log('🚀 Приложение загружается...');
@@ -67,22 +47,19 @@ document.addEventListener("DOMContentLoaded", async () => {
     const balanceEl = document.getElementById("balance");
     if (balanceEl) balanceEl.innerText = "Loading...";
     
-    // Инициализация пользователя
+    // Инициализация пользователя (данные придут с сервера)
     const connected = await window.initUser();
     
     if (!connected && window.showNotification) {
-        window.showNotification('⚠️ Офлайн-режим: данные не сохраняются', 'error');
+        window.showNotification('⚠️ Ошибка подключения к серверу', 'error');
     }
     
-    // Рендер интерфейса
-    if (window.fullRender) window.fullRender();
-    
-    // Запуск бустов
+    // Запуск сервисов
     if (window.startBoostChecker) window.startBoostChecker();
     if (window.startAutoClickerLoop) window.startAutoClickerLoop();
     if (window.initTasks) window.initTasks();
     
-    // ===== ИНИЦИАЛИЗАЦИЯ GIGAPUB =====
+    // Инициализация GIGAPUB
     if (window.checkGigaPubReady) {
         setTimeout(() => {
             console.log('🔍 Проверка GigaPub...');
@@ -90,7 +67,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         }, 2000);
     }
     
-    // ===== КНОПКИ БУСТОВ =====
+    // КНОПКИ БУСТОВ
     const boostDoubleBtn = document.getElementById('boostDoubleBtn');
     if (boostDoubleBtn) {
         boostDoubleBtn.onclick = () => {
@@ -105,7 +82,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         };
     }
     
-    // ===== КНОПКА ВЫВОДА СРЕДСТВ =====
+    // КНОПКА ВЫВОДА СРЕДСТВ
     const withdrawBtn = document.getElementById('withdrawBtn');
     if (withdrawBtn) {
         withdrawBtn.onclick = () => {
@@ -115,6 +92,3 @@ document.addEventListener("DOMContentLoaded", async () => {
     
     console.log('✅ Приложение загружено');
 });
-
-// Экспорт
-window.resetUserData = resetUserData;

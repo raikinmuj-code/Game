@@ -6,19 +6,18 @@ let blocks = [
     { id: 3, v: 0, l: 0 }
 ];
 
-// Бонусы/бусты
 let boosts = {
-    doubleIncome: false,    // Удвоение дохода
-    autoClicker: false,     // Авто-кликер
-    doubleIncomeUntil: 0,   // Время окончания удвоения
-    autoClickerUntil: 0     // Время окончания авто-кликера
+    doubleIncome: false,
+    autoClicker: false,
+    doubleIncomeUntil: 0,
+    autoClickerUntil: 0
 };
 
 let timerIntervals = [];
 let saveTimeout = null;
 let boostCheckInterval = null;
+let autoClickerInterval = null;
 
-// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function clearAllTimers() {
     timerIntervals.forEach(interval => clearInterval(interval));
     timerIntervals = [];
@@ -27,7 +26,6 @@ function clearAllTimers() {
 
 function getRewardForCurrentLevel() {
     let reward = 0.0009 * user.level;
-    // Проверяем удвоение дохода
     if (boosts.doubleIncome && boosts.doubleIncomeUntil > Date.now()) {
         reward *= 2;
     } else if (boosts.doubleIncome) {
@@ -62,7 +60,6 @@ function formatBoostTime(until) {
     return `${seconds}с`;
 }
 
-// Автосохранение
 function debounceSave() {
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
@@ -70,7 +67,6 @@ function debounceSave() {
     }, 500);
 }
 
-// Проверка активных бустов
 function checkBoosts() {
     let updated = false;
     
@@ -86,7 +82,7 @@ function checkBoosts() {
     if (boosts.autoClicker && boosts.autoClickerUntil <= Date.now()) {
         boosts.autoClicker = false;
         boosts.autoClickerUntil = 0;
-        updated = false; // не показываем уведомление, авто-кликер и так работает
+        updated = true;
     }
     
     if (updated && window.fullRender) {
@@ -95,19 +91,15 @@ function checkBoosts() {
     }
 }
 
-// Запуск проверки бустов
 function startBoostChecker() {
     if (boostCheckInterval) clearInterval(boostCheckInterval);
     boostCheckInterval = setInterval(checkBoosts, 1000);
 }
 
-// Покупка буста
 function buyBoost(boostType, cost, durationHours) {
     if (user.balance < cost) {
         if (window.showAlert) {
             window.showAlert(`❌ Недостаточно средств! Нужно $${cost.toFixed(4)}`);
-        } else {
-            alert(`Недостаточно средств! Нужно $${cost.toFixed(4)}`);
         }
         if (window.hapticFeedback) window.hapticFeedback('error');
         return false;
@@ -129,7 +121,6 @@ function buyBoost(boostType, cost, durationHours) {
             if (window.showNotification) {
                 window.showNotification(`⚡ Авто-кликер активирован на ${durationHours} часа!`, 'success');
             }
-            // Если авто-кликер куплен и авто-режим выключен, включаем его
             if (!window.auto) {
                 setTimeout(() => {
                     if (window.toggleAutoMode && !window.auto) {
@@ -146,9 +137,7 @@ function buyBoost(boostType, cost, durationHours) {
     return true;
 }
 
-// ============= ОСНОВНАЯ ЛОГИКА ПРОСМОТРА =============
 function watchAd(blockId) {
-    // Вибрация при нажатии
     if (window.hapticFeedback) window.hapticFeedback('light');
     
     const block = blocks.find(b => b.id === blockId);
@@ -165,7 +154,6 @@ function watchAd(blockId) {
     user.ads += 1;
     block.v += 1;
     
-    // Отправка события в Telegram
     if (window.sendToTelegram) {
         window.sendToTelegram('ad_watched', { 
             blockId: blockId, 
@@ -174,14 +162,12 @@ function watchAd(blockId) {
         });
     }
     
-    // Повышение уровня
     let leveled = false;
     while (user.ads >= 100) {
         user.level += 1;
         user.ads = 0;
         leveled = true;
         
-        // Поздравление с новым уровнем
         if (window.showAlert && leveled) {
             setTimeout(() => {
                 window.showAlert(`🎉 Поздравляем! Вы достигли ${user.level} уровня!\nНаграда за просмотр: +$${getRewardForCurrentLevel().toFixed(4)}`);
@@ -189,7 +175,6 @@ function watchAd(blockId) {
         }
     }
     
-    // Блокировка на 24 часа при 15 просмотрах
     if (block.v >= 15) {
         block.l = Date.now() + 86400000;
         if (window.showNotification) {
@@ -205,7 +190,6 @@ function watchAd(blockId) {
     }
 }
 
-// ============= ПОЛУЧЕНИЕ ДОХОДА ОТ АВТО-КЛИКЕРА =============
 function collectAutoClickerIncome() {
     if (!boosts.autoClicker || boosts.autoClickerUntil <= Date.now()) {
         if (boosts.autoClicker) {
@@ -216,7 +200,6 @@ function collectAutoClickerIncome() {
         return false;
     }
     
-    // Авто-кликер даёт доход каждые 5 секунд (но не блокирует блоки)
     let collected = false;
     for (let b of blocks) {
         if (Date.now() >= b.l && b.v < 15) {
@@ -228,11 +211,10 @@ function collectAutoClickerIncome() {
             if (b.v >= 15) {
                 b.l = Date.now() + 86400000;
             }
-            break; // один блок за раз
+            break;
         }
     }
     
-    // Проверка повышения уровня
     while (user.ads >= 100) {
         user.level += 1;
         user.ads = 0;
@@ -246,9 +228,6 @@ function collectAutoClickerIncome() {
     return collected;
 }
 
-// Запуск авто-кликера (отдельный интервал)
-let autoClickerInterval = null;
-
 function startAutoClickerLoop() {
     if (autoClickerInterval) clearInterval(autoClickerInterval);
     autoClickerInterval = setInterval(() => {
@@ -259,10 +238,9 @@ function startAutoClickerLoop() {
             boosts.autoClickerUntil = 0;
             if (window.fullRender) window.fullRender();
         }
-    }, 5000); // каждые 5 секунд
+    }, 5000);
 }
 
-// ============= ЗАДАНИЯ =============
 let completedTasks = {
     subscribe: false,
     share: false
@@ -313,7 +291,6 @@ function initTasks() {
     });
 }
 
-// ============= ВЫВОД СРЕДСТВ =============
 function withdrawFunds() {
     if (user.balance < 0.01) {
         if (window.showAlert) {
@@ -325,7 +302,6 @@ function withdrawFunds() {
     if (window.showConfirm) {
         window.showConfirm(`Вывести $${user.balance.toFixed(4)}?`, (confirmed) => {
             if (confirmed) {
-                // Здесь можно добавить реальный вывод через Telegram API
                 if (window.showAlert) {
                     window.showAlert('✅ Заявка на вывод отправлена! Средства поступят в течение 24 часов.');
                 }
@@ -342,7 +318,6 @@ function withdrawFunds() {
     }
 }
 
-// ============= ЭКСПОРТ ГЛОБАЛЬНЫХ ФУНКЦИЙ =============
 window.user = user;
 window.blocks = blocks;
 window.boosts = boosts;
@@ -363,3 +338,5 @@ window.startAutoClickerLoop = startAutoClickerLoop;
 window.collectAutoClickerIncome = collectAutoClickerIncome;
 window.checkBoosts = checkBoosts;
 window.clearAllTimers = clearAllTimers;
+// В самом конце файла, после всех других window.xxx
+window.timerIntervals = timerIntervals;

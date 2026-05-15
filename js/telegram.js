@@ -7,10 +7,10 @@ function initTelegram() {
         // Расширяем на все окно
         tg.expand();
         
-        // Показываем кнопку "Назад" если нужно
+        // Скрываем кнопку "Назад"
         tg.BackButton.hide();
         
-        // Настройка темы (адаптация под тему Telegram)
+        // Адаптация темы
         if (tg.colorScheme === 'dark') {
             document.body.style.background = '#0E1621';
         } else {
@@ -20,11 +20,18 @@ function initTelegram() {
         // Получаем данные пользователя
         const user = tg.initDataUnsafe?.user;
         
+        // Получаем реферальный параметр из start_param
+        const startParam = tg.initDataUnsafe?.start_param;
+        if (startParam) {
+            localStorage.setItem('referrerId', startParam);
+            console.log('🔗 Приглашён пользователем:', startParam);
+        }
+        
         if (user) {
             console.log('👤 Telegram User:', user);
             return {
-                id: user.id,
-                username: user.username || `${user.first_name} ${user.last_name || ''}`,
+                id: user.id.toString(),
+                username: user.username || null,
                 firstName: user.first_name,
                 lastName: user.last_name,
                 avatar: `https://t.me/i/userpic/360/${user.id}.jpg`,
@@ -32,19 +39,12 @@ function initTelegram() {
                 isPremium: user.is_premium || false
             };
         }
-        
-        // Получаем referrer из start_param
-        const startParam = tg.initDataUnsafe?.start_param;
-        if (startParam) {
-            localStorage.setItem('referrerId', startParam);
-            console.log('🔗 Приглашён пользователем:', startParam);
-        }
     }
     
     return null;
 }
 
-// Отправка данных в Telegram (для аналитики)
+// Отправка данных в Telegram
 function sendToTelegram(event, data) {
     if (tg) {
         tg.sendData(JSON.stringify({
@@ -52,22 +52,6 @@ function sendToTelegram(event, data) {
             data: data,
             timestamp: Date.now()
         }));
-    }
-}
-
-// Показать главную кнопку (например, "Смотреть рекламу")
-function showMainButton(text, callback) {
-    if (tg) {
-        tg.MainButton.text = text;
-        tg.MainButton.show();
-        tg.MainButton.onClick(callback);
-    }
-}
-
-// Скрыть главную кнопку
-function hideMainButton() {
-    if (tg) {
-        tg.MainButton.hide();
     }
 }
 
@@ -98,7 +82,7 @@ function closeWebApp() {
     }
 }
 
-// Вибрация (если поддерживается)
+// Вибрация
 function hapticFeedback(type = 'light') {
     if (tg?.HapticFeedback) {
         switch(type) {
@@ -129,8 +113,6 @@ function getInviteLink(botUsername, userId) {
 // Экспорт
 window.initTelegram = initTelegram;
 window.sendToTelegram = sendToTelegram;
-window.showMainButton = showMainButton;
-window.hideMainButton = hideMainButton;
 window.showAlert = showAlert;
 window.showConfirm = showConfirm;
 window.closeWebApp = closeWebApp;

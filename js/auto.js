@@ -12,7 +12,7 @@ async function autoWatchLoop() {
     
     while (auto) {
         let anyAction = false;
-        for (let b of blocks) {
+        for (let b of window.blocks || []) {
             if (!auto) break;
             const notLocked = Date.now() >= b.l;
             const notFull = b.v < 15;
@@ -20,15 +20,15 @@ async function autoWatchLoop() {
                 await new Promise(resolve => setTimeout(resolve, 1200));
                 if (!auto) break;
                 
-                const reward = getRewardForCurrentLevel();
-                user.balance += reward;
-                user.ads += 1;
+                const reward = window.getRewardForCurrentLevel ? window.getRewardForCurrentLevel() : 0.0009;
+                window.user.balance += reward;
+                window.user.ads += 1;
                 b.v += 1;
                 
                 let leveled = false;
-                while (user.ads >= 100) {
-                    user.level += 1;
-                    user.ads = 0;
+                while (window.user.ads >= 100) {
+                    window.user.level += 1;
+                    window.user.ads = 0;
                     leveled = true;
                 }
                 
@@ -37,6 +37,7 @@ async function autoWatchLoop() {
                 }
                 
                 if (window.fullRender) window.fullRender();
+                if (window.debounceSave) window.debounceSave();
                 
                 if (leveled) {
                     const rewardDiv = document.getElementById("nextLevelReward");
@@ -63,3 +64,18 @@ function toggleAutoMode() {
         autoWatchLoop();
     }
 }
+
+// Экспорт функций
+window.autoWatchLoop = autoWatchLoop;
+window.toggleAutoMode = toggleAutoMode;
+
+// Геттеры для переменных (чтобы window.auto всегда показывал актуальное значение)
+Object.defineProperty(window, 'auto', {
+    get: () => auto,
+    set: (val) => { auto = val; }
+});
+
+Object.defineProperty(window, 'autoLoopActive', {
+    get: () => autoLoopActive,
+    set: (val) => { autoLoopActive = val; }
+});

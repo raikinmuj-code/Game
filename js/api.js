@@ -7,7 +7,7 @@ let currentUserId = null;
 let telegramUser = null;
 
 async function initUser() {
-    // Сначала инициализируем Telegram
+    // Инициализируем Telegram
     telegramUser = window.initTelegram ? window.initTelegram() : null;
     
     let userId = localStorage.getItem('userId');
@@ -16,12 +16,17 @@ async function initUser() {
     // Если есть Telegram user, используем его ID
     if (telegramUser && telegramUser.id) {
         userId = `tg_${telegramUser.id}`;
+        console.log('✅ Telegram пользователь:', telegramUser.username, 'ID:', userId);
     }
     
     const payload = {
         userId: userId,
-        username: telegramUser?.username || null,
+        username: telegramUser?.username || telegramUser?.firstName || null,
+        firstName: telegramUser?.firstName || null,
+        lastName: telegramUser?.lastName || null,
         avatar: telegramUser?.avatar || null,
+        languageCode: telegramUser?.languageCode || null,
+        isPremium: telegramUser?.isPremium || false,
         referrerId: referrerId
     };
     
@@ -44,7 +49,6 @@ async function initUser() {
         currentUserId = data.user.id;
         localStorage.setItem('userId', currentUserId);
         
-        // Если был реферер, очищаем
         if (referrerId) {
             localStorage.removeItem('referrerId');
         }
@@ -57,21 +61,24 @@ async function initUser() {
         };
         
         // Загружаем блоки
-        for (let i = 1; i <= 3; i++) {
-            if (window.blocks && data.blocks && data.blocks[i]) {
-                window.blocks[i-1].v = data.blocks[i].v;
-                window.blocks[i-1].l = data.blocks[i].l;
+        if (window.blocks && data.blocks) {
+            for (let i = 1; i <= 3; i++) {
+                if (data.blocks[i]) {
+                    window.blocks[i-1].v = data.blocks[i].v;
+                    window.blocks[i-1].l = data.blocks[i].l;
+                }
             }
         }
         
-        // Обновляем UI
         if (window.fullRender) window.fullRender();
         
-        // Обновляем отображение имени и аватара
+        // Обновляем отображение
         const usernameSpan = document.getElementById("username");
         if (usernameSpan) {
             if (telegramUser?.username) {
-                usernameSpan.innerText = telegramUser.username;
+                usernameSpan.innerText = '@' + telegramUser.username;
+            } else if (telegramUser?.firstName) {
+                usernameSpan.innerText = telegramUser.firstName;
             } else {
                 usernameSpan.innerText = data.user.username;
             }
@@ -87,21 +94,27 @@ async function initUser() {
         }
         
         const userIdSpan = document.getElementById("userid");
-        if (userIdSpan) userIdSpan.innerText = `ID: ${data.user.id.slice(0, 8)}`;
+        if (userIdSpan && telegramUser) {
+            userIdSpan.innerText = `ID: ${telegramUser.id}`;
+        } else if (userIdSpan) {
+            userIdSpan.innerText = `ID: ${data.user.id.slice(0, 8)}`;
+        }
         
-        // Обновляем реферальную ссылку
         updateInviteLink();
         
-        // Отправляем событие в Telegram
         if (window.sendToTelegram) {
-            window.sendToTelegram('app_opened', { userId: currentUserId, level: window.user.level });
+            window.sendToTelegram('app_opened', { 
+                userId: currentUserId, 
+                telegramId: telegramUser?.id,
+                level: window.user.level 
+            });
         }
         
         return true;
     } catch (error) {
         console.error('❌ Ошибка подключения:', error);
         if (window.showNotification) {
-            window.showNotification('⚠️ Сервер не доступен, данные сохраняются локально', 'error');
+            window.showNotification('⚠️ Ошибка подключения к серверу', 'error');
         }
         return false;
     }
@@ -110,7 +123,7 @@ async function initUser() {
 function updateInviteLink() {
     const inviteContainer = document.getElementById('inviteLink');
     if (inviteContainer && currentUserId) {
-        const shortId = currentUserId.slice(0, 8);
+        const shortId = currentUserId.replace('tg_', '').slice(0, 8);
         const inviteUrl = `https://t.me/${BOT_USERNAME}?start=${shortId}`;
         inviteContainer.innerHTML = `
             <button class="btn" id="inviteBtn" style="background: #2AABEE;">📨 Пригласить друга</button>
@@ -118,7 +131,6 @@ function updateInviteLink() {
             <div style="font-size: 12px; color: #8EA2B1; margin-top: 8px; text-align: center;" id="referralCount"></div>
         `;
         
-        // Навешиваем обработчик
         const inviteBtn = document.getElementById('inviteBtn');
         if (inviteBtn) {
             inviteBtn.onclick = () => {
@@ -171,7 +183,6 @@ async function loadLeaderboard() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         
-        // Обновляем лидерборд в UI
         const leaderboardContent = document.getElementById('leaderboardContent');
         if (leaderboardContent && data.length > 0) {
             let html = '';
@@ -202,17 +213,6 @@ async function loadLeaderboard() {
     }
 }
 
-async function getStats() {
-    try {
-        const response = await fetch(`${API_URL}/stats`);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return await response.json();
-    } catch (error) {
-        console.error('❌ Ошибка загрузки статистики:', error);
-        return null;
-    }
-}
-
 function showNotification(message, type = 'info') {
     const notice = document.createElement('div');
     notice.style.cssText = `
@@ -236,11 +236,9 @@ function showNotification(message, type = 'info') {
     setTimeout(() => notice.remove(), 3000);
 }
 
-// Экспорт
 window.initUser = initUser;
 window.saveProgress = saveProgress;
 window.loadLeaderboard = loadLeaderboard;
-window.getStats = getStats;
 window.showNotification = showNotification;
 window.updateInviteLink = updateInviteLink;
 window.API_URL = API_URL;

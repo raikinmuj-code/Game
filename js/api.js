@@ -7,13 +7,11 @@ let currentUserId = null;
 let telegramUser = null;
 
 async function initUser() {
-    // Инициализируем Telegram
     telegramUser = window.initTelegram ? window.initTelegram() : null;
     
     let userId = localStorage.getItem('userId');
     let referrerId = localStorage.getItem('referrerId');
     
-    // Если есть Telegram user, используем его ID
     if (telegramUser && telegramUser.id) {
         userId = `tg_${telegramUser.id}`;
         console.log('✅ Telegram пользователь:', telegramUser.username, 'ID:', userId);
@@ -45,6 +43,7 @@ async function initUser() {
         
         const data = await response.json();
         console.log('✅ Данные с сервера:', data);
+        console.log('📦 Блоки с сервера:', data.blocks);
         
         currentUserId = data.user.id;
         localStorage.setItem('userId', currentUserId);
@@ -53,14 +52,14 @@ async function initUser() {
             localStorage.removeItem('referrerId');
         }
         
-        // Обновляем глобальные переменные
+        // ОБНОВЛЯЕМ ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
         window.user = {
             balance: data.user.balance,
             level: data.user.level,
             ads: data.user.ads
         };
         
-        // Загружаем блоки
+        // ОБНОВЛЯЕМ БЛОКИ из данных сервера
         if (window.blocks && data.blocks) {
             for (let i = 1; i <= 3; i++) {
                 if (data.blocks[i]) {
@@ -69,6 +68,25 @@ async function initUser() {
                 }
             }
         }
+        
+        // СИНХРОНИЗИРУЕМ локальные переменные
+        if (window.user) {
+            user.balance = window.user.balance;
+            user.level = window.user.level;
+            user.ads = window.user.ads;
+        }
+        
+        if (window.blocks) {
+            for (let i = 0; i < blocks.length; i++) {
+                blocks[i].v = window.blocks[i].v;
+                blocks[i].l = window.blocks[i].l;
+            }
+        }
+        
+        console.log('🔄 После синхронизации:', {
+            user: user,
+            blocks: blocks
+        });
         
         if (window.fullRender) window.fullRender();
         
@@ -147,12 +165,26 @@ function updateInviteLink() {
 }
 
 async function saveProgress() {
-    if (!currentUserId) return;
-    if (!window.user || !window.blocks) return;
+    if (!currentUserId) {
+        console.log('❌ saveProgress: нет currentUserId');
+        return;
+    }
+    if (!window.user || !window.blocks) {
+        console.log('❌ saveProgress: нет user или blocks');
+        return;
+    }
     
     const blocksData = {};
     window.blocks.forEach((b, idx) => {
         blocksData[idx + 1] = { v: b.v, l: b.l };
+    });
+    
+    console.log('💾 Сохраняем:', {
+        userId: currentUserId,
+        balance: window.user.balance,
+        level: window.user.level,
+        ads: window.user.ads,
+        blocks: blocksData
     });
     
     try {
@@ -171,7 +203,8 @@ async function saveProgress() {
         });
         
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        console.log('💾 Прогресс сохранён на сервере');
+        const result = await response.json();
+        console.log('💾 Прогресс сохранён на сервере:', result);
     } catch (error) {
         console.error('❌ Ошибка сохранения:', error);
     }

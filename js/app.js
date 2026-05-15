@@ -18,6 +18,7 @@ let saveTimeout = null;
 let boostCheckInterval = null;
 let autoClickerInterval = null;
 
+// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function clearAllTimers() {
     timerIntervals.forEach(interval => clearInterval(interval));
     timerIntervals = [];
@@ -137,12 +138,23 @@ function buyBoost(boostType, cost, durationHours) {
     return true;
 }
 
+// ============= ОСНОВНАЯ ЛОГИКА ПРОСМОТРА =============
 function watchAd(blockId) {
+    console.log('👁️ watchAd вызван, блок:', blockId);
+    console.log('Текущий баланс ДО:', user.balance);
+    console.log('Текущий уровень:', user.level);
+    console.log('Блоки:', blocks);
+    
     if (window.hapticFeedback) window.hapticFeedback('light');
     
     const block = blocks.find(b => b.id === blockId);
-    if (!block) return;
+    if (!block) {
+        console.error('❌ Блок не найден:', blockId);
+        return;
+    }
+    
     if (Date.now() < block.l) {
+        console.log('🔒 Блок заблокирован до:', new Date(block.l));
         if (window.showNotification) {
             window.showNotification('🔒 Блок заблокирован на 24 часа', 'error');
         }
@@ -150,9 +162,14 @@ function watchAd(blockId) {
     }
     
     const reward = getRewardForCurrentLevel();
+    console.log('💰 Награда за просмотр:', reward);
+    
     user.balance += reward;
     user.ads += 1;
     block.v += 1;
+    
+    console.log('Текущий баланс ПОСЛЕ:', user.balance);
+    console.log('Просмотров блока:', block.v, '/15');
     
     if (window.sendToTelegram) {
         window.sendToTelegram('ad_watched', { 
@@ -167,6 +184,7 @@ function watchAd(blockId) {
         user.level += 1;
         user.ads = 0;
         leveled = true;
+        console.log('🎉 ПОВЫШЕНИЕ УРОВНЯ! Новый уровень:', user.level);
         
         if (window.showAlert && leveled) {
             setTimeout(() => {
@@ -177,6 +195,7 @@ function watchAd(blockId) {
     
     if (block.v >= 15) {
         block.l = Date.now() + 86400000;
+        console.log('🔒 Блок ЗАБЛОКИРОВАН на 24 часа до:', new Date(block.l));
         if (window.showNotification) {
             window.showNotification(`🔒 Рекламный блок ${blockId} заблокирован на 24 часа!`, 'info');
         }
@@ -190,6 +209,7 @@ function watchAd(blockId) {
     }
 }
 
+// ============= ПОЛУЧЕНИЕ ДОХОДА ОТ АВТО-КЛИКЕРА =============
 function collectAutoClickerIncome() {
     if (!boosts.autoClicker || boosts.autoClickerUntil <= Date.now()) {
         if (boosts.autoClicker) {
@@ -241,6 +261,7 @@ function startAutoClickerLoop() {
     }, 5000);
 }
 
+// ============= ЗАДАНИЯ =============
 let completedTasks = {
     subscribe: false,
     share: false
@@ -291,6 +312,7 @@ function initTasks() {
     });
 }
 
+// ============= ВЫВОД СРЕДСТВ =============
 function withdrawFunds() {
     if (user.balance < 0.01) {
         if (window.showAlert) {
@@ -318,11 +340,14 @@ function withdrawFunds() {
     }
 }
 
+// ============= ЭКСПОРТ ГЛОБАЛЬНЫХ ПЕРЕМЕННЫХ =============
 window.user = user;
 window.blocks = blocks;
 window.boosts = boosts;
 window.completedTasks = completedTasks;
+window.timerIntervals = timerIntervals;
 
+// ============= ЭКСПОРТ ФУНКЦИЙ =============
 window.getRewardForCurrentLevel = getRewardForCurrentLevel;
 window.getRewardForNextLevel = getRewardForNextLevel;
 window.formatLockTime = formatLockTime;
@@ -338,5 +363,5 @@ window.startAutoClickerLoop = startAutoClickerLoop;
 window.collectAutoClickerIncome = collectAutoClickerIncome;
 window.checkBoosts = checkBoosts;
 window.clearAllTimers = clearAllTimers;
-// В самом конце файла, после всех других window.xxx
-window.timerIntervals = timerIntervals;
+
+console.log('✅ app.js загружен, функции экспортированы');

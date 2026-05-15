@@ -152,7 +152,6 @@ function buyBoost(boostType, cost, durationHours) {
 // ============= ОСНОВНАЯ ЛОГИКА ПРОСМОТРА =============
 function watchAd(blockId) {
     console.log('👁️ watchAd вызван, блок:', blockId);
-    if (window.debugLog) window.debugLog(`👁️ Нажатие на блок ${blockId}`, 'info');
     
     if (window.hapticFeedback) window.hapticFeedback('light');
     
@@ -175,7 +174,6 @@ function watchAd(blockId) {
     
     const giveReward = () => {
         console.log('✅ Начисляем награду!');
-        if (window.debugLog) window.debugLog(`💰 Начислено +${adReward}`, 'success');
         
         user.balance += adReward;
         user.ads += 1;
@@ -220,6 +218,8 @@ function watchAd(blockId) {
         }
         
         window.showGigapubAd(blockId, (success) => {
+            console.log('🎬 Callback, success:', success);
+            
             if (success) {
                 giveReward();
             } else {
@@ -231,7 +231,9 @@ function watchAd(blockId) {
         });
     } else {
         console.error('❌ showGigapubAd не определён');
-        giveReward();
+        if (window.showNotification) {
+            window.showNotification('❌ Реклама временно недоступна', 'error');
+        }
     }
 }
 

@@ -1,33 +1,31 @@
-// ============= GIGAPUB ИНТЕГРАЦИЯ (КАСКАДНАЯ) =============
+// ============= GIGAPUB ИНТЕГРАЦИЯ (с правильным callback) =============
 
 let gigapubReady = false;
 
-// Проверка готовности GigaPub
+// Функция проверки готовности GigaPub
 function checkGigaPubReady() {
     if (typeof window.showGiga !== 'undefined') {
-        console.log('✅ GigaPub готов к работе!');
+        console.log('✅ GigaPub готов!');
         gigapubReady = true;
         return true;
     }
-    console.log('⏳ Ожидаем загрузку GigaPub...');
     return false;
 }
 
-// Показ рекламы через GigaPub
+// Показ рекламы
 async function showGigapubAd(blockId, onRewardCallback) {
     console.log('📺 Показ рекламы GigaPub для блока', blockId);
     
-    // Проверяем готовность
-    if (!gigapubReady && !checkGigaPubReady()) {
-        // Ждём загрузку до 5 секунд
-        for (let i = 0; i < 25; i++) {
-            await new Promise(r => setTimeout(r, 200));
-            if (checkGigaPubReady()) break;
-        }
+    // Ждём готовность (максимум 3 секунды)
+    let attempts = 0;
+    while (!gigapubReady && attempts < 30) {
+        await new Promise(r => setTimeout(r, 100));
+        checkGigaPubReady();
+        attempts++;
     }
     
     if (!gigapubReady || typeof window.showGiga === 'undefined') {
-        console.error('❌ GigaPub не загружен');
+        console.error('❌ GigaPub не готов');
         if (onRewardCallback) onRewardCallback(false);
         return;
     }
@@ -35,7 +33,8 @@ async function showGigapubAd(blockId, onRewardCallback) {
     try {
         console.log('🎬 Вызываем window.showGiga()...');
         
-        // Показываем рекламу
+        // showGiga возвращает Promise
+        // Когда реклама просмотрена до конца — Promise резолвится
         await window.showGiga();
         
         console.log('✅ Реклама просмотрена, награда выдана!');
@@ -47,15 +46,8 @@ async function showGigapubAd(blockId, onRewardCallback) {
     }
 }
 
-// Функция для принудительной инициализации (если нужно)
-function initGigapub() {
-    console.log('🔄 Принудительная проверка GigaPub...');
-    checkGigaPubReady();
-}
-
 // Экспорт
 window.showGigapubAd = showGigapubAd;
-window.initGigapub = initGigapub;
 window.checkGigaPubReady = checkGigaPubReady;
 
 console.log('✅ gigapub.js загружен');

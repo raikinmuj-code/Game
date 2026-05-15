@@ -3,9 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Mini App Ads</title>
+    <title>Duck Ads — Зарабатывай с рекламой</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
+    
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js?56"></script>
 </head>
 <body>
 
@@ -46,10 +49,63 @@
     </div>
 
     <!-- OTHER PAGES -->
-    <div class="page" id="friends"><div class="card"><div data-i18n="friends">Друзья</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">👥 Пригласите друга — получите бонус 0.005$</div></div></div>
-    <div class="page" id="boosts"><div class="card"><div data-i18n="boosts">Бусты</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">⚡ Ускоренный заработок (скоро)</div></div></div>
-    <div class="page" id="tasks"><div class="card"><div data-i18n="tasks">Задания</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">✅ Выполняй задания за монеты (скоро)</div></div></div>
-    <div class="page" id="wallet"><div class="card"><div data-i18n="wallet">Кошелек</div><div style="font-size:12px; color:#8EA2B1; margin-top:12px;">💎 Ваш адрес TON: EQD... (тест)</div></div></div>
+    <div class="page" id="friends">
+        <div class="card">
+            <div data-i18n="friends">👥 Друзья</div>
+            <div id="inviteLink" style="margin-top: 12px;">
+                <button class="btn" id="inviteBtn" style="background: #2AABEE;">📨 Пригласить друга</button>
+                <div style="font-size: 12px; color: #8EA2B1; margin-top: 12px; text-align: center;" id="referralCount"></div>
+            </div>
+            <div id="leaderboardList" style="margin-top: 20px;">
+                <div style="font-weight:700; margin-bottom:12px;">🏆 Топ игроков</div>
+                <div id="leaderboardContent">Загрузка...</div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="page" id="boosts">
+        <div class="card">
+            <div data-i18n="boosts">⚡ Бусты</div>
+            <div style="font-size:12px; color:#8EA2B1; margin-top:12px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0;">
+                    <span>🎯 Удвоение дохода</span>
+                    <button class="btn" style="width:auto; padding:8px 16px; margin:0;" id="boostDoubleBtn">Купить за 5000</button>
+                </div>
+                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0;">
+                    <span>⚡ Авто-кликер</span>
+                    <button class="btn" style="width:auto; padding:8px 16px; margin:0;" id="boostAutoBtn">Купить за 10000</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="page" id="tasks">
+        <div class="card">
+            <div data-i18n="tasks">✅ Задания</div>
+            <div style="font-size:12px; color:#8EA2B1; margin-top:12px;" id="tasksList">
+                <div class="task-item" style="display:flex; justify-content:space-between; padding:10px 0;">
+                    <span>📢 Подписаться на канал</span>
+                    <button class="task-btn" data-task="subscribe">+1000</button>
+                </div>
+                <div class="task-item" style="display:flex; justify-content:space-between; padding:10px 0;">
+                    <span>🔄 Поделиться с другом</span>
+                    <button class="task-btn" data-task="share">+500</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="page" id="wallet">
+        <div class="card">
+            <div data-i18n="wallet">💎 Кошелек</div>
+            <div style="font-size:12px; color:#8EA2B1; margin-top:12px;" id="walletInfo">
+                <div style="text-align:center; padding:10px;">
+                    <div style="font-size:24px; font-weight:800;" id="walletBalance">$0.0000</div>
+                    <button class="btn" id="withdrawBtn" style="margin-top:15px; background:#4ade80;">💸 Вывести средства</button>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- BOTTOM NAVIGATION -->
@@ -77,10 +133,11 @@
 </div>
 
 <script src="js/lang.js"></script>
-<script src="js/api.js"></script>      <!-- НОВЫЙ файл -->
+<script src="js/telegram.js"></script>
+<script src="js/api.js"></script>
 <script src="js/app.js"></script>
-<script src="js/ui.js"></script>
 <script src="js/auto.js"></script>
+<script src="js/ui.js"></script>
 <script src="js/main.js"></script>
 
 </body>

@@ -57,31 +57,40 @@ function resetUserData() {
     if (window.saveProgress) window.saveProgress();
 }
 
+// ============= ЗАГРУЗКА ПРИЛОЖЕНИЯ =============
 document.addEventListener("DOMContentLoaded", async () => {
+    console.log('🚀 Приложение загружается...');
+    
     initNavigation();
     bindEvents();
     
     const balanceEl = document.getElementById("balance");
     if (balanceEl) balanceEl.innerText = "Loading...";
     
+    // Инициализация пользователя
     const connected = await window.initUser();
     
     if (!connected && window.showNotification) {
         window.showNotification('⚠️ Офлайн-режим: данные не сохраняются', 'error');
     }
     
+    // Рендер интерфейса
     if (window.fullRender) window.fullRender();
+    
+    // Запуск бустов
     if (window.startBoostChecker) window.startBoostChecker();
     if (window.startAutoClickerLoop) window.startAutoClickerLoop();
     if (window.initTasks) window.initTasks();
     
-    // 👇 ИНИЦИАЛИЗАЦИЯ GIGAPUB 👇
-    if (window.initGigapub) {
+    // ===== ИНИЦИАЛИЗАЦИЯ GIGAPUB =====
+    if (window.checkGigaPubReady) {
         setTimeout(() => {
-            window.initGigapub();
-        }, 1000);
+            console.log('🔍 Проверка GigaPub...');
+            window.checkGigaPubReady();
+        }, 2000);
     }
     
+    // ===== КНОПКИ БУСТОВ =====
     const boostDoubleBtn = document.getElementById('boostDoubleBtn');
     if (boostDoubleBtn) {
         boostDoubleBtn.onclick = () => {
@@ -96,12 +105,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         };
     }
     
+    // ===== КНОПКА ВЫВОДА СРЕДСТВ =====
     const withdrawBtn = document.getElementById('withdrawBtn');
     if (withdrawBtn) {
         withdrawBtn.onclick = () => {
             if (window.withdrawFunds) window.withdrawFunds();
         };
     }
+    
+    console.log('✅ Приложение загружено');
 });
 
+// Экспорт
 window.resetUserData = resetUserData;

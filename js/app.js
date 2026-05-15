@@ -1,18 +1,17 @@
 // ============= ОСНОВНАЯ ЛОГИКА ПРОСМОТРА =============
 function watchAd(blockId) {
-    console.log('👁️ watchAd вызван, блок:', blockId);
-    console.log('Текущий баланс ДО:', user.balance);
+    debugLog(`👁️ watchAd вызван, блок: ${blockId}, баланс ДО: ${user.balance}`, 'info');
     
     if (window.hapticFeedback) window.hapticFeedback('light');
     
     const block = blocks.find(b => b.id === blockId);
     if (!block) {
-        console.error('❌ Блок не найден:', blockId);
+        debugLog(`❌ Блок не найден: ${blockId}`, 'error');
         return;
     }
     
     if (Date.now() < block.l) {
-        console.log('🔒 Блок заблокирован до:', new Date(block.l));
+        debugLog(`🔒 Блок ${blockId} заблокирован до: ${new Date(block.l)}`, 'warning');
         if (window.showNotification) {
             window.showNotification('🔒 Блок заблокирован на 24 часа', 'error');
         }
@@ -20,32 +19,25 @@ function watchAd(blockId) {
     }
     
     const adReward = getRewardForCurrentLevel();
-    console.log('💰 Награда за просмотр:', adReward);
+    debugLog(`💰 Награда за просмотр: ${adReward}`, 'info');
     
-    // Функция начисления награды
     const giveReward = () => {
-        console.log('✅ Начисляем награду!');
+        debugLog(`✅ Начисляем награду! +${adReward}`, 'success');
         
         user.balance += adReward;
         user.ads += 1;
         block.v += 1;
         
-        console.log('💰 Начислено:', adReward);
-        console.log('💰 Новый баланс:', user.balance);
-        console.log('📊 Просмотров блока:', block.v, '/15');
+        debugLog(`💰 Новый баланс: ${user.balance}`, 'success');
+        debugLog(`📊 Просмотров блока ${blockId}: ${block.v}/15`, 'info');
         
-        // Обновляем UI сразу
         if (window.fullRender) window.fullRender();
-        
-        // Сохраняем на сервер
         debounceSave();
         
-        // Уведомление
         if (window.showNotification) {
             window.showNotification(`✅ +$${adReward.toFixed(4)} за просмотр!`, 'success');
         }
         
-        // Отправка в Telegram
         if (window.sendToTelegram) {
             window.sendToTelegram('ad_watched', { 
                 blockId: blockId, 
@@ -54,25 +46,22 @@ function watchAd(blockId) {
             });
         }
         
-        // Проверка повышения уровня
         let leveled = false;
         while (user.ads >= 100) {
             user.level += 1;
             user.ads = 0;
             leveled = true;
-            console.log('🎉 ПОВЫШЕНИЕ УРОВНЯ! Новый уровень:', user.level);
+            debugLog(`🎉 ПОВЫШЕНИЕ УРОВНЯ! Новый уровень: ${user.level}`, 'success');
         }
         
-        // Блокировка на 24 часа при 15 просмотрах
         if (block.v >= 15) {
             block.l = Date.now() + 86400000;
-            console.log('🔒 Блок ЗАБЛОКИРОВАН на 24 часа');
+            debugLog(`🔒 Блок ${blockId} ЗАБЛОКИРОВАН на 24 часа`, 'info');
             if (window.showNotification) {
                 window.showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа!`, 'info');
             }
         }
         
-        // Ещё раз обновляем UI (на случай изменения уровня)
         if (window.fullRender) window.fullRender();
         debounceSave();
         
@@ -86,26 +75,25 @@ function watchAd(blockId) {
         }
     };
     
-    // Показываем рекламу через GigaPub
     if (window.showGigapubAd) {
         if (window.showNotification) {
             window.showNotification('📺 Загрузка рекламы...', 'info');
         }
         
         window.showGigapubAd(blockId, (success) => {
-            console.log('🎬 Callback от showGigapubAd, success:', success);
+            debugLog(`🎬 Callback от showGigapubAd, success: ${success}`, 'info');
             
             if (success) {
                 giveReward();
             } else {
-                console.log('❌ Реклама не просмотрена');
+                debugLog('❌ Реклама не просмотрена', 'error');
                 if (window.showNotification) {
                     window.showNotification('❌ Реклама не загрузилась, попробуйте позже', 'error');
                 }
             }
         });
     } else {
-        console.error('❌ window.showGigapubAd не определён!');
+        debugLog('❌ window.showGigapubAd не определён!', 'error');
         if (window.showNotification) {
             window.showNotification('❌ Реклама временно недоступна', 'error');
         }

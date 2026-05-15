@@ -1,5 +1,5 @@
 // ============= API ДЛЯ РАБОТЫ С БЕКЕНДОМ =============
-const API_BASE_URL = 'https://serv-production-804f.up.railway.app';
+const API_BASE_URL = 'https://serv-production-2773.up.railway.app';
 const API_URL = `${API_BASE_URL}/api`;
 const BOT_USERNAME = 'Duckkadsbot';
 

@@ -6,16 +6,34 @@ let blocks = [
     { id: 3, v: 0, l: 0 }
 ];
 
+// Бонусы/бусты
+let boosts = {
+    doubleIncome: false,    // Удвоение дохода
+    autoClicker: false,     // Авто-кликер
+    doubleIncomeUntil: 0,   // Время окончания удвоения
+    autoClickerUntil: 0     // Время окончания авто-кликера
+};
+
 let timerIntervals = [];
 let saveTimeout = null;
+let boostCheckInterval = null;
 
+// ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
 function clearAllTimers() {
     timerIntervals.forEach(interval => clearInterval(interval));
     timerIntervals = [];
+    if (boostCheckInterval) clearInterval(boostCheckInterval);
 }
 
 function getRewardForCurrentLevel() {
-    return 0.0009 * user.level;
+    let reward = 0.0009 * user.level;
+    // Проверяем удвоение дохода
+    if (boosts.doubleIncome && boosts.doubleIncomeUntil > Date.now()) {
+        reward *= 2;
+    } else if (boosts.doubleIncome) {
+        boosts.doubleIncome = false;
+    }
+    return reward;
 }
 
 function getRewardForNextLevel() {
@@ -33,7 +51,18 @@ function formatLockTime(lockUntil) {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-// Автосохранение (не чаще раза в секунду)
+function formatBoostTime(until) {
+    if (!until || until <= Date.now()) return null;
+    const diffMs = until - Date.now();
+    const hours = Math.floor(diffMs / 3600000);
+    const minutes = Math.floor((diffMs % 3600000) / 60000);
+    const seconds = Math.floor((diffMs % 60000) / 1000);
+    if (hours > 0) return `${hours}ч ${minutes}м`;
+    if (minutes > 0) return `${minutes}м ${seconds}с`;
+    return `${seconds}с`;
+}
+
+// Автосохранение
 function debounceSave() {
     if (saveTimeout) clearTimeout(saveTimeout);
     saveTimeout = setTimeout(() => {
@@ -41,15 +70,109 @@ function debounceSave() {
     }, 500);
 }
 
+// Проверка активных бустов
+function checkBoosts() {
+    let updated = false;
+    
+    if (boosts.doubleIncome && boosts.doubleIncomeUntil <= Date.now()) {
+        boosts.doubleIncome = false;
+        boosts.doubleIncomeUntil = 0;
+        updated = true;
+        if (window.showNotification) {
+            window.showNotification('⏰ Удвоение дохода закончилось!', 'info');
+        }
+    }
+    
+    if (boosts.autoClicker && boosts.autoClickerUntil <= Date.now()) {
+        boosts.autoClicker = false;
+        boosts.autoClickerUntil = 0;
+        updated = false; // не показываем уведомление, авто-кликер и так работает
+    }
+    
+    if (updated && window.fullRender) {
+        window.fullRender();
+        debounceSave();
+    }
+}
+
+// Запуск проверки бустов
+function startBoostChecker() {
+    if (boostCheckInterval) clearInterval(boostCheckInterval);
+    boostCheckInterval = setInterval(checkBoosts, 1000);
+}
+
+// Покупка буста
+function buyBoost(boostType, cost, durationHours) {
+    if (user.balance < cost) {
+        if (window.showAlert) {
+            window.showAlert(`❌ Недостаточно средств! Нужно $${cost.toFixed(4)}`);
+        } else {
+            alert(`Недостаточно средств! Нужно $${cost.toFixed(4)}`);
+        }
+        if (window.hapticFeedback) window.hapticFeedback('error');
+        return false;
+    }
+    
+    user.balance -= cost;
+    
+    switch(boostType) {
+        case 'double':
+            boosts.doubleIncome = true;
+            boosts.doubleIncomeUntil = Date.now() + (durationHours * 3600000);
+            if (window.showNotification) {
+                window.showNotification(`💰 Удвоение дохода активировано на ${durationHours} часа!`, 'success');
+            }
+            break;
+        case 'auto':
+            boosts.autoClicker = true;
+            boosts.autoClickerUntil = Date.now() + (durationHours * 3600000);
+            if (window.showNotification) {
+                window.showNotification(`⚡ Авто-кликер активирован на ${durationHours} часа!`, 'success');
+            }
+            // Если авто-кликер куплен и авто-режим выключен, включаем его
+            if (!window.auto) {
+                setTimeout(() => {
+                    if (window.toggleAutoMode && !window.auto) {
+                        window.toggleAutoMode();
+                    }
+                }, 500);
+            }
+            break;
+    }
+    
+    if (window.hapticFeedback) window.hapticFeedback('success');
+    if (window.fullRender) window.fullRender();
+    debounceSave();
+    return true;
+}
+
+// ============= ОСНОВНАЯ ЛОГИКА ПРОСМОТРА =============
 function watchAd(blockId) {
+    // Вибрация при нажатии
+    if (window.hapticFeedback) window.hapticFeedback('light');
+    
     const block = blocks.find(b => b.id === blockId);
     if (!block) return;
-    if (Date.now() < block.l) return;
+    if (Date.now() < block.l) {
+        if (window.showNotification) {
+            window.showNotification('🔒 Блок заблокирован на 24 часа', 'error');
+        }
+        return;
+    }
     
     const reward = getRewardForCurrentLevel();
     user.balance += reward;
     user.ads += 1;
     block.v += 1;
+    
+    // Отправка события в Telegram
+    if (window.sendToTelegram) {
+        window.sendToTelegram('ad_watched', { 
+            blockId: blockId, 
+            reward: reward, 
+            level: user.level 
+        });
+    }
     
     // Повышение уровня
     let leveled = false;
@@ -57,21 +180,186 @@ function watchAd(blockId) {
         user.level += 1;
         user.ads = 0;
         leveled = true;
+        
+        // Поздравление с новым уровнем
+        if (window.showAlert && leveled) {
+            setTimeout(() => {
+                window.showAlert(`🎉 Поздравляем! Вы достигли ${user.level} уровня!\nНаграда за просмотр: +$${getRewardForCurrentLevel().toFixed(4)}`);
+            }, 100);
+        }
     }
     
     // Блокировка на 24 часа при 15 просмотрах
     if (block.v >= 15) {
         block.l = Date.now() + 86400000;
+        if (window.showNotification) {
+            window.showNotification(`🔒 Рекламный блок ${blockId} заблокирован на 24 часа!`, 'info');
+        }
     }
     
     if (window.fullRender) window.fullRender();
-    debounceSave(); // Сохраняем после действия
+    debounceSave();
     
-    if (leveled) {
-        const rewardDiv = document.getElementById("nextLevelReward");
-        if (rewardDiv) {
-            rewardDiv.style.transform = "scale(1.08)";
-            setTimeout(() => { if(rewardDiv) rewardDiv.style.transform = ""; }, 200);
-        }
+    if (leveled && window.hapticFeedback) {
+        window.hapticFeedback('success');
     }
 }
+
+// ============= ПОЛУЧЕНИЕ ДОХОДА ОТ АВТО-КЛИКЕРА =============
+function collectAutoClickerIncome() {
+    if (!boosts.autoClicker || boosts.autoClickerUntil <= Date.now()) {
+        if (boosts.autoClicker) {
+            boosts.autoClicker = false;
+            boosts.autoClickerUntil = 0;
+            if (window.fullRender) window.fullRender();
+        }
+        return false;
+    }
+    
+    // Авто-кликер даёт доход каждые 5 секунд (но не блокирует блоки)
+    let collected = false;
+    for (let b of blocks) {
+        if (Date.now() >= b.l && b.v < 15) {
+            const reward = getRewardForCurrentLevel();
+            user.balance += reward;
+            b.v += 1;
+            collected = true;
+            
+            if (b.v >= 15) {
+                b.l = Date.now() + 86400000;
+            }
+            break; // один блок за раз
+        }
+    }
+    
+    // Проверка повышения уровня
+    while (user.ads >= 100) {
+        user.level += 1;
+        user.ads = 0;
+    }
+    
+    if (collected) {
+        if (window.fullRender) window.fullRender();
+        debounceSave();
+    }
+    
+    return collected;
+}
+
+// Запуск авто-кликера (отдельный интервал)
+let autoClickerInterval = null;
+
+function startAutoClickerLoop() {
+    if (autoClickerInterval) clearInterval(autoClickerInterval);
+    autoClickerInterval = setInterval(() => {
+        if (boosts.autoClicker && boosts.autoClickerUntil > Date.now()) {
+            collectAutoClickerIncome();
+        } else if (boosts.autoClicker) {
+            boosts.autoClicker = false;
+            boosts.autoClickerUntil = 0;
+            if (window.fullRender) window.fullRender();
+        }
+    }, 5000); // каждые 5 секунд
+}
+
+// ============= ЗАДАНИЯ =============
+let completedTasks = {
+    subscribe: false,
+    share: false
+};
+
+function completeTask(taskId, reward) {
+    if (completedTasks[taskId]) {
+        if (window.showNotification) {
+            window.showNotification('✅ Задание уже выполнено!', 'info');
+        }
+        return false;
+    }
+    
+    completedTasks[taskId] = true;
+    user.balance += reward;
+    
+    if (window.fullRender) window.fullRender();
+    debounceSave();
+    
+    if (window.hapticFeedback) window.hapticFeedback('success');
+    if (window.showNotification) {
+        window.showNotification(`🎁 Получено +$${reward.toFixed(0)} за задание!`, 'success');
+    }
+    
+    return true;
+}
+
+function initTasks() {
+    const taskBtns = document.querySelectorAll('.task-btn');
+    taskBtns.forEach(btn => {
+        btn.onclick = () => {
+            const taskId = btn.getAttribute('data-task');
+            if (taskId === 'subscribe') {
+                window.open('https://t.me/duckads', '_blank');
+                setTimeout(() => {
+                    completeTask('subscribe', 1000);
+                }, 3000);
+            } else if (taskId === 'share') {
+                if (window.getInviteLink && window.currentUserId) {
+                    const link = window.getInviteLink(window.BOT_USERNAME, window.currentUserId);
+                    navigator.clipboard.writeText(link);
+                    completeTask('share', 500);
+                } else {
+                    completeTask('share', 500);
+                }
+            }
+        };
+    });
+}
+
+// ============= ВЫВОД СРЕДСТВ =============
+function withdrawFunds() {
+    if (user.balance < 0.01) {
+        if (window.showAlert) {
+            window.showAlert('❌ Минимальная сумма для вывода: $0.01');
+        }
+        return;
+    }
+    
+    if (window.showConfirm) {
+        window.showConfirm(`Вывести $${user.balance.toFixed(4)}?`, (confirmed) => {
+            if (confirmed) {
+                // Здесь можно добавить реальный вывод через Telegram API
+                if (window.showAlert) {
+                    window.showAlert('✅ Заявка на вывод отправлена! Средства поступят в течение 24 часов.');
+                }
+                user.balance = 0;
+                if (window.fullRender) window.fullRender();
+                debounceSave();
+                if (window.hapticFeedback) window.hapticFeedback('success');
+            }
+        });
+    } else {
+        alert(`Вывод $${user.balance.toFixed(4)} (демо-режим)`);
+        user.balance = 0;
+        if (window.fullRender) window.fullRender();
+    }
+}
+
+// ============= ЭКСПОРТ ГЛОБАЛЬНЫХ ФУНКЦИЙ =============
+window.user = user;
+window.blocks = blocks;
+window.boosts = boosts;
+window.completedTasks = completedTasks;
+
+window.getRewardForCurrentLevel = getRewardForCurrentLevel;
+window.getRewardForNextLevel = getRewardForNextLevel;
+window.formatLockTime = formatLockTime;
+window.formatBoostTime = formatBoostTime;
+window.debounceSave = debounceSave;
+window.watchAd = watchAd;
+window.buyBoost = buyBoost;
+window.completeTask = completeTask;
+window.initTasks = initTasks;
+window.withdrawFunds = withdrawFunds;
+window.startBoostChecker = startBoostChecker;
+window.startAutoClickerLoop = startAutoClickerLoop;
+window.collectAutoClickerIncome = collectAutoClickerIncome;
+window.checkBoosts = checkBoosts;
+window.clearAllTimers = clearAllTimers;

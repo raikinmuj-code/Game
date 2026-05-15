@@ -1,27 +1,32 @@
 // ============= API ДЛЯ РАБОТЫ С БЕКЕНДОМ =============
-const API_URL = 'http://localhost:3000/api'; // для локальной разработки
-// const API_URL = 'https://твой-сервер.ru/api'; // для продакшена
+// ТВОЙ РЕАЛЬНЫЙ URL ИЗ RAILWAY (без /api в конце, добавим при запросах)
+const API_BASE_URL = 'https://serv-production-804f.up.railway.app';
+const API_URL = `${API_BASE_URL}/api`;
 
 let currentUserId = null;
 
 async function initUser() {
-    // Пытаемся получить ID из localStorage
     let userId = localStorage.getItem('userId');
     
     try {
+        console.log('Подключение к серверу:', API_URL);
+        
         const response = await fetch(`${API_URL}/user`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId })
         });
         
-        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
         
-        // Сохраняем ID
+        const data = await response.json();
+        console.log('Данные с сервера:', data);
+        
         currentUserId = data.user.id;
         localStorage.setItem('userId', currentUserId);
         
-        // Загружаем данные в глобальные переменные
         user = {
             balance: data.user.balance,
             level: data.user.level,
@@ -30,7 +35,7 @@ async function initUser() {
         
         // Загружаем блоки
         for (let i = 1; i <= 3; i++) {
-            if (data.blocks[i]) {
+            if (data.blocks && data.blocks[i]) {
                 blocks[i-1].v = data.blocks[i].v;
                 blocks[i-1].l = data.blocks[i].l;
             } else {
@@ -39,10 +44,8 @@ async function initUser() {
             }
         }
         
-        // Обновляем UI
         if (window.fullRender) window.fullRender();
         
-        // Обновляем имя и аватар
         const usernameSpan = document.getElementById("username");
         if (usernameSpan) usernameSpan.innerText = data.user.username;
         
@@ -55,22 +58,30 @@ async function initUser() {
         return true;
     } catch (error) {
         console.error('Ошибка подключения к серверу:', error);
-        // Если сервер не доступен, работаем в офлайн-режиме
+        document.body.innerHTML += `
+            <div style="position:fixed; bottom:90px; left:50%; transform:translateX(-50%); 
+                        background:#ff4444; color:#fff; padding:8px 16px; border-radius:20px; 
+                        font-size:12px; z-index:100; text-align:center;">
+                ⚠️ Сервер не доступен: ${error.message}
+            </div>
+        `;
         return false;
     }
 }
 
 async function saveProgress() {
-    if (!currentUserId) return;
+    if (!currentUserId) {
+        console.log('Нет userId, сохранение отложено');
+        return;
+    }
     
-    // Подготовка данных блоков
     const blocksData = {};
     blocks.forEach((b, idx) => {
         blocksData[idx + 1] = { v: b.v, l: b.l };
     });
     
     try {
-        await fetch(`${API_URL}/save`, {
+        const response = await fetch(`${API_URL}/save`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -79,6 +90,12 @@ async function saveProgress() {
                 blocks: blocksData
             })
         });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        
+        console.log('Прогресс сохранён');
     } catch (error) {
         console.error('Ошибка сохранения:', error);
     }
@@ -87,6 +104,7 @@ async function saveProgress() {
 async function loadLeaderboard() {
     try {
         const response = await fetch(`${API_URL}/leaderboard`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
         return data;
     } catch (error) {

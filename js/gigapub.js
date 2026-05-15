@@ -1,27 +1,27 @@
 // ============= GIGAPUB ИНТЕГРАЦИЯ =============
 let gigapubInitialized = false;
-let gigapubPlacementId = '6724'; // Твой код из Gigapub!
+let gigapubPlacementId = '6724'; // Твой ID
 
 // Инициализация Gigapub
 function initGigapub() {
+    console.log('🔄 Инициализация Gigapub...');
+    
+    // Ждём загрузки SDK
     if (typeof Gigapub === 'undefined') {
-        console.warn('⚠️ Gigapub SDK не загружен, проверь подключение скрипта');
+        console.log('⏳ Gigapub SDK ещё не загружен, ждём...');
+        setTimeout(() => initGigapub(), 500);
         return false;
     }
     
+    console.log('✅ Gigapub SDK найден:', typeof Gigapub);
+    
     try {
-        console.log('🔄 Инициализация Gigapub...');
-        
         Gigapub.init({
             placementId: gigapubPlacementId,
-            debug: true, // Включи для отладки (потом выключи)
-            testMode: false, // Режим боевой, т.к. есть реальный ID
+            debug: true,
             onReady: () => {
                 console.log('✅ Gigapub готов к работе! Placement ID:', gigapubPlacementId);
                 gigapubInitialized = true;
-                if (window.showNotification) {
-                    window.showNotification('📺 Реклама готова к показу!', 'success');
-                }
             },
             onError: (error) => {
                 console.error('❌ Gigapub ошибка:', error);
@@ -30,28 +30,30 @@ function initGigapub() {
         });
         return true;
     } catch (error) {
-        console.error('❌ Ошибка инициализации Gigapub:', error);
+        console.error('❌ Ошибка инициализации:', error);
         return false;
     }
 }
 
-// Показ рекламы через Gigapub
+// Показ рекламы
 function showGigapubAd(blockId, onRewardCallback) {
-    if (!gigapubInitialized && typeof Gigapub !== 'undefined') {
-        initGigapub();
-    }
+    console.log('📺 Показ рекламы для блока', blockId);
     
-    // Проверяем доступность
-    if (typeof Gigapub === 'undefined' || !Gigapub.showRewardedAd) {
-        console.warn('⚠️ Gigapub недоступен, используем симуляцию');
-        // Фолбэк: симулируем просмотр через 1 секунду
+    // Если не инициализирован, пробуем ещё раз
+    if (!gigapubInitialized) {
+        console.log('🔄 Gigapub не инициализирован, пробуем...');
+        initGigapub();
         setTimeout(() => {
-            if (onRewardCallback) onRewardCallback(true, { amount: 0.0009, type: 'simulated' });
-        }, 1000);
+            showGigapubAd(blockId, onRewardCallback);
+        }, 500);
         return;
     }
     
-    console.log('📺 Показ рекламы Gigapub для блока', blockId, 'Placement:', gigapubPlacementId);
+    if (typeof Gigapub === 'undefined' || !Gigapub.showRewardedAd) {
+        console.error('❌ Gigapub.showRewardedAd не доступен');
+        if (onRewardCallback) onRewardCallback(false, null);
+        return;
+    }
     
     try {
         Gigapub.showRewardedAd({
@@ -76,31 +78,13 @@ function showGigapubAd(blockId, onRewardCallback) {
             }
         });
     } catch (error) {
-        console.error('❌ Исключение при показе рекламы:', error);
-        if (onRewardCallback) {
-            onRewardCallback(false, null);
-        }
+        console.error('❌ Исключение:', error);
+        if (onRewardCallback) onRewardCallback(false, null);
     }
-}
-
-// Проверка доступности рекламы
-function isGigapubAvailable() {
-    return typeof Gigapub !== 'undefined' && gigapubInitialized;
-}
-
-// Установка Placement ID
-function setGigapubPlacementId(placementId) {
-    gigapubPlacementId = placementId;
-    gigapubInitialized = false;
-    console.log('🔄 Placement ID обновлён:', placementId);
-    initGigapub();
 }
 
 // Экспорт
 window.initGigapub = initGigapub;
 window.showGigapubAd = showGigapubAd;
-window.isGigapubAvailable = isGigapubAvailable;
-window.setGigapubPlacementId = setGigapubPlacementId;
-window.gigapubPlacementId = gigapubPlacementId;
 
-console.log('✅ gigapub.js загружен, Placement ID:', gigapubPlacementId);
+console.log('✅ gigapub.js загружен');

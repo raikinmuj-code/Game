@@ -1,6 +1,6 @@
 // ============= ДЕБАГ-ПАНЕЛЬ ДЛЯ ТЕЛЕФОНОВ =============
 
-let debugMode = true; // Включить/выключить режим отладки
+let debugMode = true;
 let debugMessages = [];
 let debugPanel = null;
 
@@ -10,15 +10,11 @@ function debugLog(message, type = 'info') {
     const logEntry = { timestamp, message, type };
     debugMessages.unshift(logEntry);
     
-    // Оставляем только последние 20 сообщений
     if (debugMessages.length > 20) debugMessages.pop();
     
     console.log(`[${timestamp}] ${message}`);
-    
-    // Обновляем панель на экране
     updateDebugPanel();
     
-    // Вибрация при ошибке
     if (type === 'error' && window.hapticFeedback) {
         window.hapticFeedback('error');
     }
@@ -49,7 +45,6 @@ function createDebugPanel() {
         color: #fff;
     `;
     
-    // Заголовок с кнопкой закрытия
     const header = document.createElement('div');
     header.style.cssText = `
         display: flex;
@@ -65,23 +60,19 @@ function createDebugPanel() {
     `;
     debugPanel.appendChild(header);
     
-    // Контейнер для сообщений
     const messagesContainer = document.createElement('div');
     messagesContainer.id = 'debug-messages';
     debugPanel.appendChild(messagesContainer);
     
     document.body.appendChild(debugPanel);
     
-    // Кнопка закрытия
     document.getElementById('close-debug')?.addEventListener('click', () => {
         debugPanel.style.display = 'none';
     });
 }
 
-// Обновление панели сообщениями
 function updateDebugPanel() {
     if (!debugPanel) return;
-    
     const container = document.getElementById('debug-messages');
     if (!container) return;
     
@@ -98,13 +89,11 @@ function updateDebugPanel() {
     }).join('');
 }
 
-// Показать/скрыть панель
 function toggleDebugPanel() {
     if (!debugPanel) createDebugPanel();
     debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
 }
 
-// Добавляем кнопку для открытия дебага
 function addDebugButton() {
     const btn = document.createElement('button');
     btn.innerHTML = '🐛';
@@ -128,35 +117,22 @@ function addDebugButton() {
     document.body.appendChild(btn);
 }
 
-// Перехват ошибок
 window.addEventListener('error', (event) => {
     debugLog(`❌ Ошибка: ${event.message}`, 'error');
 });
 
-// Перехват rejected промисов
 window.addEventListener('unhandledrejection', (event) => {
     debugLog(`❌ Promise ошибка: ${event.reason}`, 'error');
 });
 
-// Модифицируем существующие функции для дебага
-if (window.watchAd) {
-    const originalWatchAd = window.watchAd;
-    window.watchAd = function(blockId) {
-        debugLog(`👁️ Нажатие на рекламу блока ${blockId}`, 'info');
-        originalWatchAd(blockId);
-    };
-}
-
-// Экспорт
 window.debugLog = debugLog;
 window.toggleDebugPanel = toggleDebugPanel;
 window.debugMode = debugMode;
 
-// Автозапуск
 setTimeout(() => {
     createDebugPanel();
     addDebugButton();
-    debugLog('🐛 Дебаг-панель активирована! Нажмите на кнопку 🐛', 'success');
+    debugLog('🐛 Дебаг-панель активирована!', 'success');
 }, 1000);
 
 console.log('✅ debug.js загружен');

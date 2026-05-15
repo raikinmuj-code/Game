@@ -71,7 +71,7 @@ function renderAdBlocks() {
         html += `
             <div class="card" data-block-id="${b.id}">
                 <div class="card-title">
-                    <span>${t("adblock")} ${b.id}</span>
+<span>${window.getBlockName ? window.getBlockName(b.id) : `${t("adblock")} ${b.id}`}</span>
                     <span style="color:#4ade80">+$${currentReward.toFixed(4)}</span>
                 </div>
                 <div class="stats">

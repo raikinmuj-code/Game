@@ -55,3 +55,7 @@ function toggleLanguage() {
     lang = (lang === "ru") ? "en" : "ru";
     if (window.fullRender) window.fullRender();
 }
+
+window.t = t;
+window.applyLanguageToStatic = applyLanguageToStatic;
+window.toggleLanguage = toggleLanguage;

@@ -75,6 +75,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (window.startAutoClickerLoop) window.startAutoClickerLoop();
     if (window.initTasks) window.initTasks();
     
+    // 👇 ИНИЦИАЛИЗАЦИЯ GIGAPUB 👇
+    if (window.initGigapub) {
+        setTimeout(() => {
+            window.initGigapub();
+        }, 1000);
+    }
+    
     const boostDoubleBtn = document.getElementById('boostDoubleBtn');
     if (boostDoubleBtn) {
         boostDoubleBtn.onclick = () => {

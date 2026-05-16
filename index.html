@@ -7,7 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
     
-    <!-- ===== КАСКАДНАЯ РЕКЛАМА GIGAPUB ===== -->
+    <!-- ===== РАСШИРЕННЫЙ СКРИПТ GIGAPUB С FALLBACK ===== -->
     <script data-project-id="6724">
       !function(){
         var s=document.currentScript,p=s.getAttribute('data-project-id')||'default';
@@ -66,12 +66,12 @@
                 </div>
             </div>
             <div class="progress"><div class="fill" id="xpFill"></div></div>
-            <button class="btn" id="autoBtn">AUTO OFF</button>
+            <button class="btn" id="autoBtn">AUTO ON</button>
         </div>
         <div id="cards"></div>
     </div>
 
-    <!-- OTHER PAGES -->
+    <!-- FRIENDS PAGE -->
     <div class="page" id="friends">
         <div class="card">
             <div data-i18n="friends">👥 Друзья</div>
@@ -86,6 +86,7 @@
         </div>
     </div>
     
+    <!-- BOOSTS PAGE -->
     <div class="page" id="boosts">
         <div class="card">
             <div data-i18n="boosts">⚡ Бусты</div>
@@ -94,14 +95,11 @@
                     <span>🎯 Удвоение дохода</span>
                     <button class="btn" style="width:auto; padding:8px 16px; margin:0;" id="boostDoubleBtn">Купить за 5000</button>
                 </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; padding:10px 0;">
-                    <span>⚡ Авто-кликер</span>
-                    <button class="btn" style="width:auto; padding:8px 16px; margin:0;" id="boostAutoBtn">Купить за 10000</button>
-                </div>
             </div>
         </div>
     </div>
     
+    <!-- TASKS PAGE -->
     <div class="page" id="tasks">
         <div class="card">
             <div data-i18n="tasks">✅ Задания</div>
@@ -118,6 +116,7 @@
         </div>
     </div>
     
+    <!-- WALLET PAGE -->
     <div class="page" id="wallet">
         <div class="card">
             <div data-i18n="wallet">💎 Кошелек</div>
@@ -154,7 +153,6 @@
         <div data-i18n="wallet">Кошелек</div>
     </div>
 </div>
-
 
 <script src="js/script.js"></script>
 

@@ -1,894 +1,740 @@
-// ============= DUCK ADS - ПОЛНЫЙ КЛИЕНТСКИЙ СКРИПТ =============
+// script.js - Полный скрипт для Duck Ads с MongoDB
 
-(function() {
-    // ============= TELEGRAM INTEGRATION =============
-    let tg = window.Telegram?.WebApp;
-    
-    function initTelegram() {
-        if (tg) {
-            tg.expand();
-            tg.BackButton.hide();
-            
-            const user = tg.initDataUnsafe?.user;
-            const startParam = tg.initDataUnsafe?.start_param;
-            
-            if (startParam) {
-                localStorage.setItem('referrerId', startParam);
-            }
-            
-            if (user) {
-                return {
-                    id: user.id.toString(),
-                    username: user.username || null,
-                    firstName: user.first_name,
-                    lastName: user.last_name,
-                    avatar: `https://t.me/i/userpic/360/${user.id}.jpg`,
-                    languageCode: user.language_code,
-                    isPremium: user.is_premium || false
-                };
-            }
-        }
-        return null;
+// ==================== ИНИЦИАЛИЗАЦИЯ TELEGRAM ====================
+const tg = window.Telegram.WebApp;
+tg.expand();
+tg.enableClosingConfirmation();
+
+// ==================== ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ====================
+let userData = {
+    id: '',
+    name: 'User',
+    avatar: '',
+    balance: 0.0,
+    level: 1,
+    xp: 0,
+    xpNeeded: 100,
+    boostDouble: false,
+    boostDoubleEnd: 0,
+    completedTasks: [],
+    lastDaily: 0,
+    referrerId: '',
+    referrals: []
+};
+
+let adsData = {
+    blocks: [
+        { id: 0, watched: 0, maxWatches: 15, rewardPerView: 0.0009 },
+        { id: 1, watched: 0, maxWatches: 15, rewardPerView: 0.0009 },
+        { id: 2, watched: 0, maxWatches: 15, rewardPerView: 0.0009 }
+    ],
+    isWatching: false
+};
+
+let autoMode = true;
+let autoInterval = null;
+let isProcessing = false;
+let boostDoubleTimer = null;
+let currentLang = 'ru';
+let translations = {};
+let serverToken = null;
+
+// ==================== МНОГОЯЗЫЧНОСТЬ ====================
+translations = {
+    ru: {
+        balance: 'БАЛАНС',
+        home: 'Главная',
+        friends: 'Друзья',
+        boosts: 'Бусты',
+        tasks: 'Задания',
+        wallet: 'Кошелек',
+        auto_on: 'AUTO ON',
+        auto_off: 'AUTO OFF',
+        watch_ad: '📺 Смотреть',
+        left: 'осталось',
+        level_up: 'УРОВЕНЬ ПОВЫШЕН!',
+        double_active: '×2 АКТИВЕН',
+        auto_active: 'АВТО АКТИВЕН',
+        invite_text: 'Приглашай друзей и получай 10% от их дохода!'
+    },
+    en: {
+        balance: 'BALANCE',
+        home: 'Home',
+        friends: 'Friends',
+        boosts: 'Boosts',
+        tasks: 'Tasks',
+        wallet: 'Wallet',
+        auto_on: 'AUTO ON',
+        auto_off: 'AUTO OFF',
+        watch_ad: '📺 Watch',
+        left: 'left',
+        level_up: 'LEVEL UP!',
+        double_active: '×2 ACTIVE',
+        auto_active: 'AUTO ACTIVE',
+        invite_text: 'Invite friends and get 10% of their earnings!'
     }
-    
-    function showAlert(message, callback) {
-        if (tg) tg.showAlert(message, callback);
-        else { alert(message); if (callback) callback(); }
+};
+
+// ==================== ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ====================
+function formatMoney(value) {
+    return '$' + value.toFixed(4);
+}
+
+function showToast(message, isError = false) {
+    let toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 90px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: ${isError ? '#e74c3c' : '#2AABEE'};
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 13px;
+        font-weight: 500;
+        z-index: 1000;
+        white-space: nowrap;
+        max-width: 90%;
+        white-space: normal;
+        text-align: center;
+        pointer-events: none;
+    `;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
+}
+
+function getCurrentReward(baseReward) {
+    let reward = baseReward;
+    if (userData.boostDouble && Date.now() < userData.boostDoubleEnd) {
+        reward *= 2;
     }
-    
-    function showConfirm(message, callback) {
-        if (tg) tg.showConfirm(message, callback);
-        else callback(confirm(message));
+    return reward;
+}
+
+async function safeAsync(callback, errorMsg) {
+    if (isProcessing) return;
+    isProcessing = true;
+    try {
+        await callback();
+    } catch (error) {
+        console.error(error);
+        showToast(errorMsg || 'Ошибка, попробуйте позже', true);
+    } finally {
+        setTimeout(() => { isProcessing = false; }, 300);
     }
+}
+
+// ==================== УРОВНИ ====================
+const levelRequirements = [0, 100, 200, 300, 400, 500];
+const levelMultipliers = [1, 1, 2, 3, 4, 5];
+
+function updateLevel() {
+    let newLevel = userData.level;
+    let totalXP = userData.xp;
     
-    function hapticFeedback(type = 'light') {
-        if (tg?.HapticFeedback) {
-            if (type === 'success') tg.HapticFeedback.notificationOccurred('success');
-            else if (type === 'error') tg.HapticFeedback.notificationOccurred('error');
-            else tg.HapticFeedback.impactOccurred(type);
-        }
-    }
-    
-    // ============= API =============
-    const API_BASE_URL = 'https://serv-production-2773.up.railway.app';
-    const API_URL = `${API_BASE_URL}/api`;
-    const BOT_USERNAME = 'Duckkadsbot';
-    
-    let currentUserId = null;
-    let user = null;
-    let blocks = null;
-    let boosts = null;
-    let auto = false;
-    let autoLoopActive = false;
-    let isProcessingAd = false;
-    let saveTimeout = null;
-    let boostCheckInterval = null;
-    let autoClickerInterval = null;
-    let timerIntervals = [];
-    
-    // ============= ЯЗЫКИ =============
-    const dict = {
-        ru: {
-            balance: "БАЛАНС", home: "Главная", friends: "Друзья", boosts: "Бусты",
-            tasks: "Задания", wallet: "Кошелек", auto_on: "AUTO ON", auto_off: "AUTO OFF",
-            watch: "Смотреть рекламу", locked: "Заблокировано", active: "Активно",
-            adblock: "Рекламный блок", level: "Уровень", views: "просмотров"
-        },
-        en: {
-            balance: "BALANCE", home: "Home", friends: "Friends", boosts: "Boosts",
-            tasks: "Tasks", wallet: "Wallet", auto_on: "AUTO ON", auto_off: "AUTO OFF",
-            watch: "Watch Ad", locked: "Locked", active: "Active",
-            adblock: "Ad Block", level: "Level", views: "views"
-        }
-    };
-    let lang = "ru";
-    
-    function t(key) { return dict[lang][key] || key; }
-    
-    // ============= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =============
-    function getRewardForCurrentLevel() {
-        if (!user) return 0.0009;
-        let reward = 0.0009 * user.level;
-        if (boosts?.doubleIncome && boosts.doubleIncomeUntil > Date.now()) reward *= 2;
-        return reward;
-    }
-    
-    function getRewardForNextLevel() {
-        if (!user) return 0.0018;
-        return 0.0009 * (user.level + 1);
-    }
-    
-    function formatLockTime(lockUntil) {
-        const now = Date.now();
-        if (now >= lockUntil) return null;
-        const diffMs = lockUntil - now;
-        const hours = Math.floor(diffMs / 3600000);
-        const minutes = Math.floor((diffMs % 3600000) / 60000);
-        const seconds = Math.floor((diffMs % 60000) / 1000);
-        return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-    }
-    
-    function formatBoostTime(until) {
-        if (!until || until <= Date.now()) return null;
-        const diffMs = until - Date.now();
-        const hours = Math.floor(diffMs / 3600000);
-        const minutes = Math.floor((diffMs % 3600000) / 60000);
-        const seconds = Math.floor((diffMs % 60000) / 1000);
-        if (hours > 0) return `${hours}ч ${minutes}м`;
-        if (minutes > 0) return `${minutes}м ${seconds}с`;
-        return `${seconds}с`;
-    }
-    
-    function getBlockName(blockId) {
-        const names = { 1: 'Gigapub', 2: 'CryptoAds', 3: 'TokenBoost' };
-        return names[blockId] || `Блок ${blockId}`;
-    }
-    
-    // ============= СОХРАНЕНИЕ =============
-    async function saveToServer() {
-        if (!user || !blocks || !currentUserId) return false;
-        
-        try {
-            const response = await fetch(`${API_URL}/save`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: currentUserId,
-                    balance: user.balance,
-                    level: user.level,
-                    ads: user.ads,
-                    blocks: {
-                        '1': { v: blocks[0].v, l: blocks[0].l },
-                        '2': { v: blocks[1].v, l: blocks[1].l },
-                        '3': { v: blocks[2].v, l: blocks[2].l }
-                    },
-                    boosts: boosts
-                })
-            });
-            
-            if (response.ok) {
-                console.log(`💾 Saved: $${user.balance}`);
-                return true;
-            }
-            return false;
-        } catch (err) { 
-            console.error('Save error:', err); 
-            return false;
-        }
-    }
-    
-    function debounceSave() {
-        if (saveTimeout) clearTimeout(saveTimeout);
-        saveTimeout = setTimeout(() => saveToServer(), 500);
-    }
-    
-    // ============= ПРОСМОТР РЕКЛАМЫ (с возможностью вызова из авто) =============
-    async function watchAd(blockId, isAuto = false) {
-        if (isProcessingAd) {
-            if (!isAuto) showNotification('Подождите, реклама уже загружается', 'info');
-            return;
-        }
-        
-        if (!user || !blocks) return;
-        
-        const block = blocks.find(b => b.id === blockId);
-        if (!block) return;
-        
-        if (Date.now() < block.l) {
-            if (!isAuto) showNotification('🔒 Блок заблокирован на 24 часа', 'error');
-            return;
-        }
-        
-        if (block.v >= 15) {
-            if (!isAuto) showNotification('🔒 Блок достиг лимита', 'error');
-            return;
-        }
-        
-        isProcessingAd = true;
-        
-        if (!isAuto) hapticFeedback('light');
-        
-        const adBtn = document.getElementById(`adBtn_${blockId}`);
-        if (adBtn) {
-            adBtn.disabled = true;
-            adBtn.style.opacity = '0.5';
-        }
-        
-        // Показываем реальную рекламу
-        if (typeof window.showGiga === 'function') {
-            try {
-                console.log(`🎬 ${isAuto ? 'Авто' : 'Ручной'}: показ рекламы для блока ${blockId}`);
-                
-                await new Promise((resolve) => {
-                    window.showGiga({
-                        onReward: () => {
-                            console.log(`✅ ${isAuto ? 'Авто' : 'Ручной'}: реклама блока ${blockId} просмотрена!`);
-                            resolve(true);
-                        },
-                        onClose: () => {
-                            console.log(`🚪 ${isAuto ? 'Авто' : 'Ручной'}: реклама блока ${blockId} закрыта без награды`);
-                            resolve(false);
-                        },
-                        onError: (err) => {
-                            console.error(`❌ ${isAuto ? 'Авто' : 'Ручной'}: ошибка рекламы блока ${blockId}:`, err);
-                            resolve(false);
-                        }
-                    });
-                });
-            } catch (error) {
-                console.error('Ошибка вызова GigaPub:', error);
-                await new Promise(r => setTimeout(r, 1000));
-            }
+    for (let i = userData.level; i <= 5; i++) {
+        if (totalXP >= levelRequirements[i]) {
+            newLevel = i + 1;
         } else {
-            console.log('⚠️ GigaPub не найден, реклама не будет показана');
-            await new Promise(r => setTimeout(r, 1000));
-        }
-        
-        const adReward = getRewardForCurrentLevel();
-        
-        console.log(`💰 ${isAuto ? 'Авто' : 'Ручной'}: начисление +$${adReward.toFixed(4)}`);
-        
-        // Начисляем награду
-        user.balance += adReward;
-        user.ads += 1;
-        block.v += 1;
-        
-        console.log(`💰 Новый баланс: $${user.balance}`);
-        console.log(`📊 Блок ${blockId}: ${block.v}/15 просмотров`);
-        
-        let leveled = false;
-        while (user.ads >= 100) {
-            user.level += 1;
-            user.ads = 0;
-            leveled = true;
-            console.log(`⬆️ ПОВЫШЕНИЕ УРОВНЯ! Теперь уровень ${user.level}`);
-            if (!isAuto) hapticFeedback('success');
-        }
-        
-        if (block.v >= 15) {
-            block.l = Date.now() + 86400000;
-            if (!isAuto) showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
-        }
-        
-        fullRender();
-        await saveToServer();
-        
-        if (!isAuto) showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
-        
-        if (leveled && !isAuto) {
-            showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
-        }
-        
-        if (adBtn) {
-            adBtn.disabled = false;
-            adBtn.style.opacity = '1';
-        }
-        
-        isProcessingAd = false;
-    }
-    
-    // ============= АВТО-РЕЖИМ (реально нажимает на кнопки блоков) =============
-    async function autoWatchLoop() {
-        if (!auto) { autoLoopActive = false; return; }
-        if (autoLoopActive) return;
-        autoLoopActive = true;
-        
-        console.log('🤖 Авто-режим ЗАПУЩЕН');
-        
-        while (auto) {
-            if (isProcessingAd) {
-                console.log('🤖 Ожидание завершения текущей рекламы...');
-                await new Promise(r => setTimeout(r, 2000));
-                continue;
-            }
-            
-            let anyAction = false;
-            
-            // Перебираем блоки по порядку (1, 2, 3)
-            for (let b of blocks) {
-                if (!auto) break;
-                
-                const notLocked = Date.now() >= b.l;
-                const notFull = b.v < 15;
-                
-                if (notLocked && notFull) {
-                    console.log(`🤖 Авто: нажимаем на блок ${b.id} (${b.v}/15 просмотров)`);
-                    
-                    // Эмулируем нажатие на кнопку блока
-                    await watchAd(b.id, true); // true означает вызов из авто-режима
-                    
-                    anyAction = true;
-                    break; // После одного просмотра начинаем цикл заново
-                }
-            }
-            
-            if (!anyAction) {
-                console.log('🤖 Нет доступных блоков, ожидание 5 секунд...');
-                await new Promise(r => setTimeout(r, 5000));
-            } else {
-                // Пауза между просмотрами (чтобы не спамить)
-                console.log('🤖 Пауза 2 секунды перед следующим просмотром...');
-                await new Promise(r => setTimeout(r, 2000));
-            }
-        }
-        
-        autoLoopActive = false;
-        console.log('🤖 Авто-режим ОСТАНОВЛЕН');
-    }
-    
-    function toggleAutoMode() {
-        auto = !auto;
-        if (auto && !autoLoopActive) {
-            autoWatchLoop();
-            showNotification('🤖 Авто-режим ВКЛЮЧЁН', 'success');
-        } else if (!auto) {
-            showNotification('🤖 Авто-режим ВЫКЛЮЧЁН', 'info');
-        }
-        fullRender();
-    }
-    
-    // ============= БУСТЫ =============
-    function checkBoosts() {
-        if (!boosts) return;
-        let updated = false;
-        
-        if (boosts.doubleIncome && boosts.doubleIncomeUntil <= Date.now()) {
-            boosts.doubleIncome = false;
-            boosts.doubleIncomeUntil = 0;
-            updated = true;
-            showNotification('⏰ Удвоение дохода закончилось', 'info');
-        }
-        
-        if (boosts.autoClicker && boosts.autoClickerUntil <= Date.now()) {
-            boosts.autoClicker = false;
-            boosts.autoClickerUntil = 0;
-            updated = true;
-            showNotification('⏰ Авто-кликер закончился', 'info');
-        }
-        
-        if (updated) { fullRender(); saveToServer(); }
-    }
-    
-    function startBoostChecker() {
-        if (boostCheckInterval) clearInterval(boostCheckInterval);
-        boostCheckInterval = setInterval(checkBoosts, 1000);
-    }
-    
-    async function buyBoost(boostType, cost, durationHours) {
-        if (!user) return false;
-        
-        if (isProcessingAd) {
-            showNotification('Подождите, реклама загружается', 'info');
-            return false;
-        }
-        
-        if (user.balance < cost) {
-            showAlert(`❌ Недостаточно средств! Нужно $${cost.toFixed(4)}`);
-            hapticFeedback('error');
-            return false;
-        }
-        
-        user.balance -= cost;
-        
-        switch(boostType) {
-            case 'double':
-                boosts.doubleIncome = true;
-                boosts.doubleIncomeUntil = Date.now() + (durationHours * 3600000);
-                showNotification(`💰 Удвоение дохода активировано на ${durationHours} часа`, 'success');
-                break;
-            case 'auto':
-                boosts.autoClicker = true;
-                boosts.autoClickerUntil = Date.now() + (durationHours * 3600000);
-                showNotification(`⚡ Авто-кликер активирован на ${durationHours} часа`, 'success');
-                break;
-        }
-        
-        hapticFeedback('success');
-        fullRender();
-        await saveToServer();
-        return true;
-    }
-    
-    function collectAutoClickerIncome() {
-        if (!boosts?.autoClicker || boosts.autoClickerUntil <= Date.now()) return false;
-        if (!user || !blocks) return false;
-        
-        for (let b of blocks) {
-            if (Date.now() >= b.l && b.v < 15) {
-                const reward = getRewardForCurrentLevel();
-                user.balance += reward;
-                b.v += 1;
-                if (b.v >= 15) b.l = Date.now() + 86400000;
-                break;
-            }
-        }
-        
-        while (user.ads >= 100) {
-            user.level += 1;
-            user.ads = 0;
-        }
-        
-        fullRender();
-        saveToServer();
-        return true;
-    }
-    
-    function startAutoClickerLoop() {
-        if (autoClickerInterval) clearInterval(autoClickerInterval);
-        autoClickerInterval = setInterval(() => {
-            if (boosts?.autoClicker && boosts.autoClickerUntil > Date.now()) {
-                collectAutoClickerIncome();
-            }
-        }, 5000);
-    }
-    
-    // ============= ЗАДАНИЯ =============
-    async function completeTask(taskId, reward) {
-        if (isProcessingAd) {
-            showNotification('Подождите, реклама загружается', 'info');
-            return false;
-        }
-        
-        try {
-            const response = await fetch(`${API_URL}/task`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: currentUserId, taskId })
-            });
-            
-            const data = await response.json();
-            
-            if (data.success) {
-                user.balance += reward;
-                fullRender();
-                await saveToServer();
-                hapticFeedback('success');
-                showNotification(`🎁 +$${reward} за задание!`, 'success');
-                return true;
-            } else {
-                showNotification(data.message || 'Задание уже выполнено', 'info');
-                return false;
-            }
-        } catch (error) {
-            console.error('Task error:', error);
-            return false;
+            break;
         }
     }
     
-    // ============= ВЫВОД СРЕДСТВ =============
-    async function withdrawFunds() {
-        if (!user) return;
-        
-        if (isProcessingAd) {
-            showNotification('Подождите, реклама загружается', 'info');
-            return;
-        }
-        
-        if (user.balance < 0.01) {
-            showAlert('❌ Минимальная сумма для вывода: $0.01');
-            return;
-        }
-        
-        showConfirm(`Вывести $${user.balance.toFixed(4)}?`, async (confirmed) => {
-            if (confirmed) {
-                const response = await fetch(`${API_URL}/withdraw`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ userId: currentUserId, amount: user.balance })
-                });
-                
-                if (response.ok) {
-                    user.balance = 0;
-                    fullRender();
-                    await saveToServer();
-                    showNotification('✅ Заявка на вывод отправлена!', 'success');
-                }
-            }
+    if (newLevel > 5) newLevel = 5;
+    
+    if (newLevel !== userData.level) {
+        userData.level = newLevel;
+        showToast(`${translations[currentLang].level_up} Level ${userData.level}! +${(levelMultipliers[userData.level] * 0.0009).toFixed(4)}$ за просмотр`);
+        saveUserData();
+    }
+    
+    userData.xpNeeded = levelRequirements[userData.level] || 500;
+    
+    let xpForNext = userData.xpNeeded;
+    let currentXP = userData.xp - (levelRequirements[userData.level - 1] || 0);
+    let neededXP = xpForNext - (levelRequirements[userData.level - 1] || 0);
+    let percent = (currentXP / neededXP) * 100;
+    if (isNaN(percent)) percent = 0;
+    
+    document.getElementById('xpFill').style.width = percent + '%';
+    document.getElementById('level').innerHTML = `Level ${userData.level} • ${currentXP}/${neededXP}`;
+    
+    let nextReward = (levelMultipliers[userData.level] || 1) * 0.0009;
+    document.getElementById('nextRewardValue').innerHTML = `+${nextReward.toFixed(4)}$`;
+    
+    updateAdRewards();
+}
+
+function addXP(amount) {
+    userData.xp += amount;
+    updateLevel();
+    saveUserData();
+}
+
+function updateAdRewards() {
+    let baseReward = 0.0009 * (levelMultipliers[userData.level] || 1);
+    adsData.blocks.forEach(block => {
+        block.rewardPerView = baseReward;
+    });
+}
+
+// ==================== API ИНТЕГРАЦИЯ С MONGODB ====================
+async function initServerUser() {
+    const telegramId = userData.id;
+    const name = userData.name;
+    const avatar = userData.avatar;
+    const referrerId = userData.referrerId;
+    
+    try {
+        const response = await fetch('/api/auth', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telegramId, name, avatar, referrerId })
         });
-    }
-    
-    // ============= ЛИДЕРБОРД =============
-    async function loadLeaderboard() {
-        try {
-            const response = await fetch(`${API_URL}/leaderboard`);
-            const data = await response.json();
+        
+        const data = await response.json();
+        if (data.success) {
+            serverToken = data.token;
+            userData.balance = data.user.balance;
+            userData.level = data.user.level;
+            userData.xp = data.user.xp;
+            userData.boostDouble = data.user.boostDouble;
+            userData.boostDoubleEnd = data.user.boostDoubleEnd;
+            userData.completedTasks = data.user.completedTasks || [];
+            userData.referrerId = data.user.referrerId;
             
-            const leaderboardContent = document.getElementById('leaderboardContent');
-            if (leaderboardContent && data.length > 0) {
-                let html = '';
-                data.slice(0, 10).forEach((player, idx) => {
-                    html += `
-                        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="font-weight:700; color:#2AABEE; width:25px;">${idx + 1}</span>
-                                <img src="${player.avatar || 'https://i.pravatar.cc/32'}" style="width:28px; height:28px; border-radius:50%;">
-                                <span>${player.username || player.userId}</span>
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="color: #4ade80; font-weight:600;">$${player.balance.toFixed(4)}</div>
-                                <div style="font-size:10px; color:#8EA2B1;">Lvl ${player.level}</div>
-                            </div>
+            await loadAdsFromServer();
+            updateUI();
+        }
+    } catch (error) {
+        console.error('Ошибка подключения к серверу:', error);
+        showToast('Офлайн режим: данные сохраняются локально', true);
+    }
+}
+
+async function loadAdsFromServer() {
+    if (!serverToken) return;
+    
+    try {
+        const response = await fetch('/api/ads', {
+            headers: { 'Authorization': serverToken }
+        });
+        const blocks = await response.json();
+        if (blocks && blocks.length) {
+            adsData.blocks = blocks;
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки рекламы:', error);
+    }
+}
+
+async function saveToServer() {
+    if (!serverToken) return;
+    
+    try {
+        await fetch('/api/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': serverToken
+            },
+            body: JSON.stringify({
+                balance: userData.balance,
+                level: userData.level,
+                xp: userData.xp,
+                boostDouble: userData.boostDouble,
+                boostDoubleEnd: userData.boostDoubleEnd,
+                completedTasks: userData.completedTasks,
+                adsBlocks: adsData.blocks,
+                autoMode: autoMode
+            })
+        });
+    } catch (error) {
+        console.error('Ошибка сохранения:', error);
+    }
+}
+
+async function addWatchToServer() {
+    if (!serverToken) return;
+    
+    try {
+        await fetch('/api/addWatch', {
+            method: 'POST',
+            headers: { 'Authorization': serverToken }
+        });
+    } catch (error) {
+        console.error('Ошибка:', error);
+    }
+}
+
+async function loadLeaderboard() {
+    try {
+        const response = await fetch('/api/leaderboard');
+        const leaders = await response.json();
+        
+        const leaderboardContent = document.getElementById('leaderboardContent');
+        if (leaderboardContent) {
+            if (leaders.length === 0) {
+                leaderboardContent.innerHTML = 'Пока нет игроков';
+            } else {
+                leaderboardContent.innerHTML = leaders.map((user, idx) => `
+                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <span style="font-weight: bold; color: #2AABEE;">${idx + 1}</span>
+                            <img src="${user.avatar || 'https://i.pravatar.cc/32'}" style="width: 28px; height: 28px; border-radius: 50%;">
+                            <span>${user.name}</span>
                         </div>
-                    `;
-                });
-                leaderboardContent.innerHTML = html;
+                        <div>
+                            <span style="color: #4ade80;">${formatMoney(user.balance)}</span>
+                            <span style="font-size: 11px; color: #8EA2B1; margin-left: 8px;">Lvl ${user.level}</span>
+                        </div>
+                    </div>
+                `).join('');
             }
-        } catch (error) {
-            console.error('Leaderboard error:', error);
         }
+    } catch (error) {
+        console.error('Ошибка загрузки топа:', error);
     }
-    
-    // ============= UI РЕНДЕРИНГ =============
-    function fullRender() {
-        applyLanguageToStatic();
+}
+
+async function loadStats() {
+    try {
+        const response = await fetch('/api/stats');
+        const stats = await response.json();
         
-        const balanceEl = document.getElementById("balance");
-        if (balanceEl) balanceEl.innerText = "$" + (user?.balance || 0).toFixed(4);
-        
-        const balanceTopSpan = document.getElementById("balanceTop");
-        if (balanceTopSpan) balanceTopSpan.innerText = "$" + (user?.balance || 0).toFixed(4);
-        
-        const walletBalance = document.getElementById('walletBalance');
-        if (walletBalance && user) walletBalance.innerText = `$${user.balance.toFixed(4)}`;
-        
-        const levelEl = document.getElementById("level");
-        if (levelEl) levelEl.innerText = `${t("level")} ${user?.level || 1} • ${user?.ads || 0}/100`;
-        
-        const fillEl = document.getElementById("xpFill");
-        if (fillEl) fillEl.style.width = (user?.ads || 0) + "%";
-        
-        const autoBtn = document.getElementById("autoBtn");
-        if (autoBtn) autoBtn.innerText = auto ? t("auto_on") : t("auto_off");
-        
-        const nextRewardSpan = document.getElementById("nextRewardValue");
-        if (nextRewardSpan) nextRewardSpan.innerText = `+$${getRewardForNextLevel().toFixed(4)}`;
-        
-        const boostDoubleBtn = document.getElementById('boostDoubleBtn');
-        if (boostDoubleBtn && boosts) {
-            if (boosts.doubleIncome && boosts.doubleIncomeUntil > Date.now()) {
-                boostDoubleBtn.innerHTML = `✅ Активен ${formatBoostTime(boosts.doubleIncomeUntil) || ''}`;
-                boostDoubleBtn.disabled = true;
-            } else {
-                boostDoubleBtn.innerHTML = 'Купить за 5000';
-                boostDoubleBtn.disabled = false;
-            }
-        }
-        
-        const boostAutoBtn = document.getElementById('boostAutoBtn');
-        if (boostAutoBtn && boosts) {
-            if (boosts.autoClicker && boosts.autoClickerUntil > Date.now()) {
-                boostAutoBtn.innerHTML = `✅ Активен ${formatBoostTime(boosts.autoClickerUntil) || ''}`;
-                boostAutoBtn.disabled = true;
-            } else {
-                boostAutoBtn.innerHTML = 'Купить за 10000';
-                boostAutoBtn.disabled = false;
-            }
-        }
-        
-        renderAdBlocks();
-    }
-    
-    function renderAdBlocks() {
-        const cardsDiv = document.getElementById("cards");
-        if (!cardsDiv || !blocks) return;
-        
-        timerIntervals.forEach(interval => clearInterval(interval));
-        timerIntervals = [];
-        
-        let html = "";
-        const currentReward = getRewardForCurrentLevel();
-        
-        blocks.forEach(b => {
-            const locked = Date.now() < b.l;
-            const viewsPercent = (b.v / 15) * 100;
-            const statusText = locked ? t("locked") : t("active");
-            
-            html += `
-                <div class="card" data-block-id="${b.id}">
-                    <div class="card-title">
-                        <span>${getBlockName(b.id)}</span>
-                        <span style="color:#4ade80">+$${currentReward.toFixed(4)}</span>
-                    </div>
-                    <div class="stats">
-                        <span>${b.v}/15 ${t("views")}</span>
-                        <span>${statusText}</span>
-                    </div>
-                    <div class="small-bar">
-                        <div class="small-fill" style="width:${viewsPercent}%"></div>
-                    </div>
-                    <button class="btn watch-ad-btn" data-block-id="${b.id}" ${locked ? 'disabled' : ''}>
-                        ${t("watch")}
-                        ${locked ? '<span class="btn-timer-text" data-block-id="' + b.id + '">(--:--:--)</span>' : ''}
-                    </button>
+        const statsElement = document.getElementById('statsInfo');
+        if (statsElement) {
+            statsElement.innerHTML = `
+                <div style="text-align: center; padding: 10px;">
+                    <div>👥 Всего игроков: ${stats.totalUsers}</div>
+                    <div>💰 Общий баланс: ${formatMoney(stats.totalBalance)}</div>
+                    <div>📺 Всего просмотров: ${stats.totalWatched || 0}</div>
                 </div>
             `;
-        });
-        
-        cardsDiv.innerHTML = html;
-        
-        document.querySelectorAll('.watch-ad-btn').forEach(btn => {
-            const blockId = parseInt(btn.getAttribute('data-block-id'));
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                if (!btn.disabled && !isProcessingAd) {
-                    watchAd(blockId, false);
-                }
-            });
-        });
-        
-        blocks.forEach(b => {
-            if (Date.now() < b.l) {
-                const timerSpan = document.querySelector(`.btn-timer-text[data-block-id="${b.id}"]`);
-                if (timerSpan) {
-                    const updateTimer = () => {
-                        const remaining = formatLockTime(b.l);
-                        if (remaining) {
-                            timerSpan.innerText = `(${remaining})`;
-                        } else {
-                            fullRender();
-                        }
-                    };
-                    updateTimer();
-                    const intervalId = setInterval(updateTimer, 1000);
-                    timerIntervals.push(intervalId);
-                }
-            }
-        });
+        }
+    } catch (error) {
+        console.error('Ошибка загрузки статистики:', error);
+    }
+}
+
+// ==================== РЕКЛАМА ====================
+function watchAd(blockId) {
+    if (isProcessing) return;
+    isProcessing = true;
+    
+    let block = adsData.blocks[blockId];
+    if (!block || block.watched >= block.maxWatches) {
+        showToast('Лимит просмотров на сегодня исчерпан', true);
+        isProcessing = false;
+        return;
     }
     
-    function applyLanguageToStatic() {
-        document.querySelectorAll("[data-i18n]").forEach(el => {
-            const key = el.getAttribute("data-i18n");
-            if (dict[lang][key]) el.innerText = dict[lang][key];
-        });
-        const langBtn = document.getElementById("langBtn");
-        if (langBtn) langBtn.innerText = lang.toUpperCase();
-    }
+    showToast('🎬 Показ рекламы...', false);
     
-    function toggleLanguage() {
-        lang = (lang === "ru") ? "en" : "ru";
-        fullRender();
-    }
-    
-    function showNotification(message, type = 'info') {
-        const notice = document.createElement('div');
-        const bgColor = type === 'error' ? '#ff4444' : (type === 'success' ? '#4ade80' : '#2AABEE');
-        notice.style.cssText = `
-            position: fixed;
-            bottom: 90px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: ${bgColor};
-            color: #fff;
-            padding: 12px 20px;
-            border-radius: 25px;
-            font-size: 13px;
-            font-weight: 600;
-            z-index: 1000;
-            text-align: center;
-            white-space: nowrap;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            animation: slideUp 0.3s ease-out;
-        `;
-        notice.innerText = message;
-        document.body.appendChild(notice);
+    setTimeout(() => {
+        let reward = getCurrentReward(block.rewardPerView);
+        userData.balance += reward;
+        block.watched++;
+        addXP(1);
+        saveUserData();
+        addWatchToServer();
+        updateUI();
+        showToast(`+${formatMoney(reward)} за просмотр!`);
+        isProcessing = false;
         
+        if (autoMode) {
+            scheduleNextAutoWatch();
+        }
+    }, 100);
+}
+
+// ==================== АВТО-КЛИКЕР ====================
+let autoWatchIndex = 0;
+
+function scheduleNextAutoWatch() {
+    if (!autoMode) return;
+    
+    let found = false;
+    for (let i = 0; i < adsData.blocks.length; i++) {
+        let idx = (autoWatchIndex + i) % adsData.blocks.length;
+        if (adsData.blocks[idx].watched < adsData.blocks[idx].maxWatches) {
+            autoWatchIndex = idx;
+            found = true;
+            break;
+        }
+    }
+    
+    if (found) {
         setTimeout(() => {
-            notice.style.animation = 'fadeOut 0.3s ease-out';
-            setTimeout(() => notice.remove(), 300);
-        }, 2500);
-    }
-    
-    // ============= ИНИЦИАЛИЗАЦИЯ ПОЛЬЗОВАТЕЛЯ =============
-    async function initUser() {
-        const telegramUser = initTelegram();
-        
-        let userId = null;
-        let referrerId = localStorage.getItem('referrerId');
-        
-        if (telegramUser && telegramUser.id) {
-            userId = telegramUser.id.toString();
-            console.log('✅ Telegram user ID:', userId);
-        } else {
-            userId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-        }
-        
-        currentUserId = userId;
-        
-        try {
-            console.log('🔄 Connecting to:', `${API_URL}/user`);
-            
-            const response = await fetch(`${API_URL}/user`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    userId: userId,
-                    username: telegramUser?.username || telegramUser?.firstName || null,
-                    firstName: telegramUser?.firstName || null,
-                    lastName: telegramUser?.lastName || null,
-                    avatar: telegramUser?.avatar || null,
-                    referrerId: referrerId
-                })
-            });
-            
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            if (autoMode && adsData.blocks[autoWatchIndex].watched < adsData.blocks[autoWatchIndex].maxWatches) {
+                watchAd(autoWatchIndex);
+                autoWatchIndex = (autoWatchIndex + 1) % adsData.blocks.length;
+            } else if (autoMode) {
+                autoWatchIndex = (autoWatchIndex + 1) % adsData.blocks.length;
+                scheduleNextAutoWatch();
             }
-            
-            const data = await response.json();
-            console.log('✅ Server response:', data);
-            
-            user = {
-                balance: data.balance || 0,
-                level: data.level || 1,
-                ads: data.ads || 0
-            };
-            
-            blocks = [
-                { id: 1, v: data.blocks?.['1']?.v || 0, l: data.blocks?.['1']?.l || 0 },
-                { id: 2, v: data.blocks?.['2']?.v || 0, l: data.blocks?.['2']?.l || 0 },
-                { id: 3, v: data.blocks?.['3']?.v || 0, l: data.blocks?.['3']?.l || 0 }
-            ];
-            
-            boosts = {
-                doubleIncome: data.boosts?.doubleIncome || false,
-                doubleIncomeUntil: data.boosts?.doubleIncomeUntil || 0,
-                autoClicker: data.boosts?.autoClicker || false,
-                autoClickerUntil: data.boosts?.autoClickerUntil || 0
-            };
-            
-            console.log('💰 Balance loaded:', user.balance);
-            console.log('📊 Blocks:', blocks);
-            
-            const usernameSpan = document.getElementById("username");
-            if (usernameSpan) {
-                usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.username || 'User');
-            }
-            
-            const avatarImg = document.getElementById("avatar");
-            if (avatarImg) avatarImg.src = data.avatar || 'https://i.pravatar.cc/100';
-            
-            const userIdSpan = document.getElementById("userid");
-            if (userIdSpan && telegramUser) userIdSpan.innerText = `ID: ${telegramUser.id}`;
-            
-            updateInviteLink();
-            fullRender();
-            
-            return true;
-        } catch (error) {
-            console.error('❌ Connection error:', error);
-            showNotification('⚠️ Ошибка подключения к серверу', 'error');
-            return false;
-        }
+        }, 3000);
     }
+}
+
+function startAutoMode() {
+    if (autoInterval) clearInterval(autoInterval);
+    if (autoMode) {
+        scheduleNextAutoWatch();
+    }
+}
+
+function toggleAutoMode() {
+    autoMode = !autoMode;
     
-    function updateInviteLink() {
-        const inviteContainer = document.getElementById('inviteLink');
-        if (inviteContainer && currentUserId) {
-            const shortId = currentUserId.slice(0, 8);
-            const inviteUrl = `https://t.me/${BOT_USERNAME}?start=${shortId}`;
-            inviteContainer.innerHTML = `
-                <button class="btn" id="inviteBtn" style="background: #2AABEE;">📨 Пригласить друга</button>
-                <div style="font-size: 10px; color: #4ade80; margin-top: 8px; word-break: break-all;">${inviteUrl}</div>
-                <div style="font-size: 12px; color: #8EA2B1; margin-top: 8px; text-align: center;" id="referralCount"></div>
-            `;
+    if (autoMode) {
+        autoWatchIndex = 0;
+        startAutoMode();
+        document.getElementById('autoBtn').innerHTML = translations[currentLang].auto_on;
+        showToast('Авто-режим включен! Блоки будут просматриваться автоматически');
+    } else {
+        document.getElementById('autoBtn').innerHTML = translations[currentLang].auto_off;
+        showToast('Авто-режим выключен');
+    }
+    saveUserData();
+}
+
+// ==================== БУСТЫ ====================
+function buyDoubleBoost() {
+    safeAsync(async () => {
+        if (userData.balance >= 5000) {
+            userData.balance -= 5000;
+            userData.boostDouble = true;
+            userData.boostDoubleEnd = Date.now() + 86400000;
             
-            const inviteBtn = document.getElementById('inviteBtn');
-            if (inviteBtn) {
-                inviteBtn.onclick = () => {
-                    navigator.clipboard.writeText(inviteUrl);
-                    showAlert('✅ Ссылка скопирована! Поделитесь с другом.');
-                    hapticFeedback('success');
-                };
-            }
-        }
-    }
-    
-    // ============= НАВИГАЦИЯ =============
-    function initNavigation() {
-        const navItems = document.querySelectorAll(".nav-item");
-        navItems.forEach(item => {
-            item.addEventListener("click", () => {
-                const pageId = item.getAttribute("data-page");
-                if (!pageId) return;
-                navItems.forEach(nav => nav.classList.remove("active"));
-                item.classList.add("active");
-                document.querySelectorAll(".page").forEach(page => page.classList.remove("active"));
-                const targetPage = document.getElementById(pageId);
-                if (targetPage) targetPage.classList.add("active");
-                
-                if (pageId === 'friends') loadLeaderboard();
-            });
-        });
-    }
-    
-    function bindEvents() {
-        const autoBtnEl = document.getElementById("autoBtn");
-        if (autoBtnEl) {
-            const newAutoBtn = autoBtnEl.cloneNode(true);
-            autoBtnEl.parentNode.replaceChild(newAutoBtn, autoBtnEl);
-            newAutoBtn.addEventListener("click", toggleAutoMode);
-        }
-        
-        const langButton = document.getElementById("langBtn");
-        if (langButton) {
-            const newLangBtn = langButton.cloneNode(true);
-            langButton.parentNode.replaceChild(newLangBtn, langButton);
-            newLangBtn.addEventListener("click", toggleLanguage);
-        }
-        
-        const boostDoubleBtn = document.getElementById('boostDoubleBtn');
-        if (boostDoubleBtn) boostDoubleBtn.onclick = () => buyBoost('double', 5000, 24);
-        
-        const boostAutoBtn = document.getElementById('boostAutoBtn');
-        if (boostAutoBtn) boostAutoBtn.onclick = () => buyBoost('auto', 10000, 24);
-        
-        const withdrawBtn = document.getElementById('withdrawBtn');
-        if (withdrawBtn) withdrawBtn.onclick = withdrawFunds;
-        
-        document.querySelectorAll('.task-btn').forEach(btn => {
-            btn.onclick = () => {
-                const taskId = btn.getAttribute('data-task');
-                if (taskId === 'subscribe') {
-                    window.open('https://t.me/duckads', '_blank');
-                    setTimeout(() => completeTask('subscribe', 1000), 3000);
-                } else if (taskId === 'share') {
-                    completeTask('share', 500);
+            if (boostDoubleTimer) clearInterval(boostDoubleTimer);
+            boostDoubleTimer = setInterval(() => {
+                if (Date.now() >= userData.boostDoubleEnd) {
+                    userData.boostDouble = false;
+                    clearInterval(boostDoubleTimer);
+                    showToast('Удвоение дохода закончилось');
+                    updateUI();
                 }
+            }, 1000);
+            
+            saveUserData();
+            updateUI();
+            showToast('Удвоение дохода куплено на 24 часа!');
+        } else {
+            showToast('Недостаточно средств! Нужно 5000$', true);
+        }
+    }, 'Ошибка покупки');
+}
+
+// ==================== ЗАДАНИЯ ====================
+function completeTask(taskId, reward) {
+    if (userData.completedTasks.includes(taskId)) {
+        showToast('Задание уже выполнено', true);
+        return;
+    }
+    
+    userData.completedTasks.push(taskId);
+    userData.balance += reward;
+    saveUserData();
+    updateUI();
+    showToast(`+${formatMoney(reward)} за задание!`);
+}
+
+// ==================== ДРУЗЬЯ И РЕФЕРАЛЫ ====================
+function generateInviteLink() {
+    let botName = window.location.hostname === 'localhost' ? 'duckads_bot' : (tg.initDataUnsafe?.user?.username || 'duckads_bot');
+    let link = `https://t.me/${botName}?start=${userData.id}`;
+    return link;
+}
+
+async function shareInvite() {
+    let link = generateInviteLink();
+    if (tg.shareToStory) {
+        tg.shareToStory(link);
+    } else {
+        let textarea = document.createElement('textarea');
+        textarea.value = link;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('Ссылка скопирована!');
+    }
+}
+
+async function addReferralToServer(referrerId) {
+    if (!serverToken || !referrerId || referrerId === userData.id) return;
+    
+    try {
+        await fetch('/api/addReferral', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': serverToken
+            },
+            body: JSON.stringify({ referrerId })
+        });
+    } catch (error) {
+        console.error('Ошибка добавления реферала:', error);
+    }
+}
+
+function updateReferralCount() {
+    let count = userData.referrals.length;
+    document.getElementById('referralCount').innerHTML = `Приглашено друзей: ${count} | Вы получаете 10% от их заработка!`;
+}
+
+// ==================== ВЫВОД СРЕДСТВ ====================
+async function withdrawFunds() {
+    if (userData.balance < 1.0) {
+        showToast('Минимальная сумма вывода 1.00$', true);
+        return;
+    }
+    
+    let wallet = prompt('Введите адрес кошелька USDT (TRC20):');
+    if (!wallet) return;
+    
+    try {
+        const response = await fetch('/api/withdraw', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': serverToken
+            },
+            body: JSON.stringify({ amount: userData.balance, wallet })
+        });
+        
+        const data = await response.json();
+        if (data.success) {
+            showToast('Запрос на вывод отправлен! Обработка до 24 часов');
+            userData.balance = 0;
+            saveUserData();
+            updateUI();
+        } else {
+            showToast(data.error || 'Ошибка вывода', true);
+        }
+    } catch (error) {
+        showToast('Ошибка сервера', true);
+    }
+}
+
+// ==================== ОБНОВЛЕНИЕ UI ====================
+function updateUI() {
+    document.getElementById('balance').innerHTML = formatMoney(userData.balance);
+    document.getElementById('balanceTop').innerHTML = formatMoney(userData.balance);
+    document.getElementById('walletBalance').innerHTML = formatMoney(userData.balance);
+    
+    updateLevel();
+    
+    let cardsContainer = document.getElementById('cards');
+    if (cardsContainer) {
+        cardsContainer.innerHTML = '';
+        
+        adsData.blocks.forEach((block, idx) => {
+            let card = document.createElement('div');
+            card.className = 'card';
+            let remaining = block.maxWatches - block.watched;
+            let progressPercent = (block.watched / block.maxWatches) * 100;
+            
+            card.innerHTML = `
+                <div class="card-title">
+                    <span>📺 Рекламный блок #${idx+1}</span>
+                    <span>+${block.rewardPerView.toFixed(4)}$ / просмотр</span>
+                </div>
+                <div class="stats">
+                    <span>📊 ${block.watched}/${block.maxWatches}</span>
+                    <span>⭐ ${translations[currentLang].left}: ${remaining}</span>
+                </div>
+                <div class="small-bar"><div class="small-fill" style="width: ${progressPercent}%"></div></div>
+                <button class="btn ad-btn" data-block="${idx}">${translations[currentLang].watch_ad}</button>
+            `;
+            cardsContainer.appendChild(card);
+        });
+        
+        document.querySelectorAll('.ad-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                let blockIdx = parseInt(btn.dataset.block);
+                watchAd(blockIdx);
             };
         });
     }
     
-    window.addEventListener('beforeunload', () => {
-        if (user && user.balance > 0) {
-            navigator.sendBeacon(`${API_URL}/save`, JSON.stringify({
-                userId: currentUserId,
-                balance: user.balance,
-                level: user.level,
-                ads: user.ads
-            }));
-        }
-    });
-    
-    const style = document.createElement('style');
-    style.textContent = `
-        @keyframes slideUp {
-            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
-            to { opacity: 1; transform: translateX(-50%) translateY(0); }
-        }
-        @keyframes fadeOut {
-            from { opacity: 1; transform: translateX(-50%) translateY(0); }
-            to { opacity: 0; transform: translateX(-50%) translateY(-20px); }
-        }
-    `;
-    document.head.appendChild(style);
-    
-    // ============= ЗАПУСК =============
-    document.addEventListener("DOMContentLoaded", async () => {
-        console.log('🚀 Duck Ads starting...');
-        console.log('📡 API URL:', API_URL);
-        
-        initNavigation();
-        bindEvents();
-        
-        const success = await initUser();
-        
-        if (success) {
-            startBoostChecker();
-            startAutoClickerLoop();
-            console.log('✅ Duck Ads ready!');
+    let boostDoubleBtn = document.getElementById('boostDoubleBtn');
+    if (boostDoubleBtn) {
+        if (userData.boostDouble && Date.now() < userData.boostDoubleEnd) {
+            boostDoubleBtn.innerHTML = '✅ АКТИВЕН';
+            boostDoubleBtn.disabled = true;
+            let hoursLeft = Math.ceil((userData.boostDoubleEnd - Date.now()) / 3600000);
+            let doubleMsg = `${translations[currentLang].double_active} (ещё ${hoursLeft}ч)`;
+            let boostsTitle = document.querySelector('#boosts .card div:first-child');
+            if (boostsTitle) boostsTitle.innerHTML = `⚡ Бусты<br><small style="color:#4ade80">${doubleMsg}</small>`;
         } else {
-            console.error('❌ Failed to initialize user');
+            boostDoubleBtn.innerHTML = 'Купить за 5000';
+            boostDoubleBtn.disabled = false;
+            let boostsTitle = document.querySelector('#boosts .card div:first-child');
+            if (boostsTitle) boostsTitle.innerHTML = '⚡ Бусты';
         }
+    }
+    
+    updateReferralCount();
+}
+
+// ==================== ЗАГРУЗКА / СОХРАНЕНИЕ ДАННЫХ ====================
+function saveUserData() {
+    let saveData = { ...userData };
+    delete saveData.referrals;
+    localStorage.setItem('duckads_user', JSON.stringify(saveData));
+    localStorage.setItem('duckads_ads', JSON.stringify(adsData.blocks));
+    localStorage.setItem('duckads_auto', autoMode);
+    saveToServer();
+}
+
+function loadUserData() {
+    let saved = localStorage.getItem('duckads_user');
+    if (saved) {
+        try {
+            let parsed = JSON.parse(saved);
+            userData = { ...userData, ...parsed };
+        } catch(e) {}
+    }
+    
+    let savedAds = localStorage.getItem('duckads_ads');
+    if (savedAds) {
+        try {
+            adsData.blocks = JSON.parse(savedAds);
+        } catch(e) {}
+    }
+    
+    let savedAuto = localStorage.getItem('duckads_auto');
+    if (savedAuto !== null) {
+        autoMode = savedAuto === 'true';
+    } else {
+        autoMode = true;
+    }
+    
+    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+        let teleUser = tg.initDataUnsafe.user;
+        userData.id = teleUser.id.toString();
+        userData.name = teleUser.first_name || teleUser.username || 'User';
+        userData.avatar = teleUser.photo_url || `https://avatars.dicebear.com/api/initials/${userData.name}.svg`;
+    } else {
+        if (!userData.id) userData.id = Math.floor(Math.random() * 1000000).toString();
+        userData.name = userData.name || 'User';
+    }
+    
+    document.getElementById('username').innerHTML = userData.name;
+    document.getElementById('userid').innerHTML = `ID: ${userData.id}`;
+    let avatarImg = document.getElementById('avatar');
+    if (avatarImg) avatarImg.src = userData.avatar;
+    
+    updateAdRewards();
+    updateLevel();
+}
+
+// ==================== НАВИГАЦИЯ ====================
+function navigateTo(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    let targetPage = document.getElementById(page);
+    if (targetPage) targetPage.classList.add('active');
+    
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('active');
+        if (item.dataset.page === page) item.classList.add('active');
     });
     
-    window.watchAd = watchAd;
-    window.toggleAutoMode = toggleAutoMode;
-    window.toggleLanguage = toggleLanguage;
-    window.saveToServer = saveToServer;
-    window.showNotification = showNotification;
-    window.hapticFeedback = hapticFeedback;
-    window.showAlert = showAlert;
-    window.showConfirm = showConfirm;
-})();
+    if (page === 'friends') {
+        loadLeaderboard();
+    }
+    if (page === 'wallet') {
+        loadStats();
+    }
+}
+
+function changeLanguage() {
+    currentLang = currentLang === 'ru' ? 'en' : 'ru';
+    let langBtn = document.getElementById('langBtn');
+    if (langBtn) langBtn.innerHTML = currentLang.toUpperCase();
+    
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        let key = el.dataset.i18n;
+        if (translations[currentLang][key]) el.innerHTML = translations[currentLang][key];
+    });
+    
+    updateUI();
+    let autoBtn = document.getElementById('autoBtn');
+    if (autoBtn) {
+        let autoBtnText = autoMode ? translations[currentLang].auto_on : translations[currentLang].auto_off;
+        autoBtn.innerHTML = autoBtnText;
+    }
+}
+
+// ==================== ОБРАБОТКА РЕФЕРАЛЬНОЙ ССЫЛКИ ====================
+function checkReferralStart() {
+    let urlParams = new URLSearchParams(window.location.search);
+    let startParam = urlParams.get('start');
+    if (startParam && startParam !== userData.id) {
+        userData.referrerId = startParam;
+        addReferralToServer(startParam);
+    }
+}
+
+// ==================== ИНИЦИАЛИЗАЦИЯ ====================
+async function init() {
+    loadUserData();
+    
+    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+        await initServerUser();
+    }
+    
+    checkReferralStart();
+    
+    let autoBtn = document.getElementById('autoBtn');
+    if (autoBtn) autoBtn.onclick = toggleAutoMode;
+    
+    let inviteBtn = document.getElementById('inviteBtn');
+    if (inviteBtn) inviteBtn.onclick = shareInvite;
+    
+    let boostDoubleBtn = document.getElementById('boostDoubleBtn');
+    if (boostDoubleBtn) boostDoubleBtn.onclick = buyDoubleBoost;
+    
+    let withdrawBtn = document.getElementById('withdrawBtn');
+    if (withdrawBtn) withdrawBtn.onclick = withdrawFunds;
+    
+    let langBtn = document.getElementById('langBtn');
+    if (langBtn) langBtn.onclick = changeLanguage;
+    
+    document.querySelectorAll('.task-btn').forEach(btn => {
+        btn.onclick = () => {
+            let task = btn.dataset.task;
+            if (task === 'subscribe') completeTask('subscribe', 1000);
+            if (task === 'share') {
+                shareInvite();
+                completeTask('share', 500);
+            }
+        };
+    });
+    
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.onclick = () => navigateTo(item.dataset.page);
+    });
+    
+    updateUI();
+    
+    if (autoMode) {
+        autoWatchIndex = 0;
+        startAutoMode();
+    }
+    
+    setInterval(() => {
+        if (autoMode) {
+            let anyLeft = adsData.blocks.some(b => b.watched < b.maxWatches);
+            if (!anyLeft && autoMode) {
+                showToast('Все блоки просмотрены на сегодня! Завтра будет новый лимит', false);
+            }
+        }
+    }, 60000);
+}
+
+document.addEventListener('DOMContentLoaded', init);

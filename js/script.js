@@ -50,6 +50,7 @@
     }
     
     // ============= API =============
+    // ПРОВЕРЬ ЭТОТ URL - ДОЛЖЕН БЫТЬ ТВОИМ АКТУАЛЬНЫМ
     const API_BASE_URL = 'https://serv-production-2773.up.railway.app';
     const API_URL = `${API_BASE_URL}/api`;
     const BOT_USERNAME = 'Duckkadsbot';
@@ -150,11 +151,14 @@
             if (response.ok) {
                 console.log(`💾 Saved: $${user.balance}`);
                 return true;
+            } else {
+                console.error('Save failed:', response.status);
+                return false;
             }
         } catch (err) { 
             console.error('Save error:', err); 
+            return false;
         }
-        return false;
     }
     
     function debounceSave() {
@@ -739,6 +743,8 @@
         currentUserId = userId;
         
         try {
+            console.log('🔄 Connecting to:', `${API_URL}/user`);
+            
             const response = await fetch(`${API_URL}/user`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -752,12 +758,15 @@
                 })
             });
             
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`HTTP ${response.status}: ${errorText}`);
+            }
             
             const data = await response.json();
-            console.log('✅ Server data:', data);
+            console.log('✅ Server response:', data);
             
-            // ===== ИСПРАВЛЕНО: данные приходят напрямую =====
+            // Сохраняем данные
             user = {
                 balance: data.balance || 0,
                 level: data.level || 1,
@@ -777,9 +786,10 @@
                 autoClickerUntil: data.boosts?.autoClickerUntil || 0
             };
             
-            console.log('💰 Loaded balance:', user.balance);
-            console.log('📊 Loaded blocks:', blocks);
+            console.log('💰 Balance loaded:', user.balance);
+            console.log('📊 Blocks:', blocks);
             
+            // Обновляем UI
             const usernameSpan = document.getElementById("username");
             if (usernameSpan) {
                 usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.username || 'User');
@@ -797,7 +807,7 @@
             return true;
         } catch (error) {
             console.error('❌ Connection error:', error);
-            showNotification('⚠️ Ошибка подключения к серверу', 'error');
+            showNotification('⚠️ Ошибка подключения к серверу: ' + error.message, 'error');
             return false;
         }
     }
@@ -906,16 +916,20 @@
     // ============= ЗАПУСК =============
     document.addEventListener("DOMContentLoaded", async () => {
         console.log('🚀 Duck Ads starting...');
+        console.log('📡 API URL:', API_URL);
         
         initNavigation();
         bindEvents();
         
-        await initUser();
+        const success = await initUser();
         
-        startBoostChecker();
-        startAutoClickerLoop();
-        
-        console.log('✅ Duck Ads ready!');
+        if (success) {
+            startBoostChecker();
+            startAutoClickerLoop();
+            console.log('✅ Duck Ads ready!');
+        } else {
+            console.error('❌ Failed to initialize user');
+        }
     });
     
     window.watchAd = watchAd;

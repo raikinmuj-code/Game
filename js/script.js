@@ -163,15 +163,38 @@
         saveTimeout = setTimeout(() => saveToServer(), 500);
     }
     
-    // ============= GIGAPUB РЕКЛАМА (МГНОВЕННОЕ НАЧИСЛЕНИЕ) =============
+    // ============= GIGAPUB РЕКЛАМА (РЕАЛЬНАЯ + НАЧИСЛЕНИЕ) =============
     async function showGigapubAd(blockId) {
         console.log(`📺 Показ рекламы для блока ${blockId}`);
-        // МГНОВЕННО ВОЗВРАЩАЕМ true — награда будет начислена сразу
-        console.log('✅ МГНОВЕННОЕ НАЧИСЛЕНИЕ: награда будет выдана сразу');
+        
+        // Пытаемся показать реальную рекламу
+        if (typeof window.showGiga === 'function') {
+            try {
+                console.log('🎬 Вызов реальной рекламы GigaPub...');
+                
+                window.showGiga({
+                    onReward: () => {
+                        console.log('✅ Реальная реклама просмотрена!');
+                    },
+                    onClose: () => {
+                        console.log('🚪 Реклама закрыта');
+                    },
+                    onError: (err) => {
+                        console.error('❌ Ошибка рекламы:', err);
+                    }
+                });
+            } catch (error) {
+                console.error('❌ Ошибка вызова GigaPub:', error);
+            }
+        } else {
+            console.log('⚠️ GigaPub не найден, реклама не будет показана');
+        }
+        
+        // Награда начисляется мгновенно (уже в watchAd)
         return true;
     }
     
-    // ============= ПРОСМОТР РЕКЛАМЫ (МГНОВЕННОЕ НАЧИСЛЕНИЕ) =============
+    // ============= ПРОСМОТР РЕКЛАМЫ =============
     async function watchAd(blockId) {
         if (isProcessingAd) {
             showNotification('Подождите, реклама уже загружается', 'info');
@@ -202,9 +225,12 @@
             adBtn.style.opacity = '0.5';
         }
         
+        // Показываем рекламу (реальную)
+        await showGigapubAd(blockId);
+        
         const adReward = getRewardForCurrentLevel();
         
-        console.log(`💰 Мгновенное начисление +$${adReward.toFixed(4)}`);
+        console.log(`💰 Начисление +$${adReward.toFixed(4)}`);
         
         // Начисляем награду
         user.balance += adReward;

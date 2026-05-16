@@ -163,118 +163,15 @@
         saveTimeout = setTimeout(() => saveToServer(), 500);
     }
     
-    // ============= GIGAPUB РЕКЛАМА (РАБОЧАЯ) =============
-    let gigapubReady = false;
-    let gigapubCheckAttempts = 0;
-    
-    function checkGigaPubReady() {
-        if (typeof window.showGiga !== 'undefined') {
-            console.log('✅ GigaPub ready');
-            gigapubReady = true;
-            return true;
-        }
-        return false;
-    }
-    
-    setInterval(() => {
-        if (!gigapubReady && gigapubCheckAttempts < 50) {
-            checkGigaPubReady();
-            gigapubCheckAttempts++;
-        }
-    }, 500);
-    
+    // ============= GIGAPUB РЕКЛАМА (МГНОВЕННОЕ НАЧИСЛЕНИЕ) =============
     async function showGigapubAd(blockId) {
-        return new Promise((resolve) => {
-            console.log(`📺 Showing ad for block ${blockId}`);
-            
-            if (gigapubReady && typeof window.showGiga === 'function') {
-                try {
-                    window.showGiga({
-                        onReward: () => {
-                            console.log('✅ Real ad rewarded!');
-                            resolve(true);
-                        },
-                        onClose: () => {
-                            console.log('Ad closed without reward');
-                            resolve(false);
-                        },
-                        onError: (err) => {
-                            console.error('Ad error:', err);
-                            resolve(false);
-                        }
-                    });
-                } catch (error) {
-                    console.error('showGiga error:', error);
-                    resolve(false);
-                }
-            } else {
-                console.log('⚠️ GigaPub not ready, trying again in 1 second');
-                setTimeout(() => {
-                    if (gigapubReady && typeof window.showGiga === 'function') {
-                        try {
-                            window.showGiga({
-                                onReward: () => {
-                                    console.log('✅ Real ad rewarded!');
-                                    resolve(true);
-                                },
-                                onClose: () => {
-                                    resolve(false);
-                                },
-                                onError: () => {
-                                    resolve(false);
-                                }
-                            });
-                        } catch (error) {
-                            resolve(false);
-                        }
-                    } else {
-                        console.error('❌ GigaPub still not ready');
-                        resolve(false);
-                    }
-                }, 1000);
-            }
-        });
+        console.log(`📺 Показ рекламы для блока ${blockId}`);
+        // МГНОВЕННО ВОЗВРАЩАЕМ true — награда будет начислена сразу
+        console.log('✅ МГНОВЕННОЕ НАЧИСЛЕНИЕ: награда будет выдана сразу');
+        return true;
     }
     
-    // ============= НАЧИСЛЕНИЕ НАГРАДЫ =============
-    async function giveReward(blockId, block, adReward) {
-        user.balance += adReward;
-        user.ads += 1;
-        block.v += 1;
-        
-        console.log(`💰 +$${adReward.toFixed(4)} | New balance: $${user.balance}`);
-        console.log(`📊 Block ${blockId}: ${block.v}/15 views`);
-        
-        // Проверка повышения уровня
-        let leveled = false;
-        while (user.ads >= 100) {
-            user.level += 1;
-            user.ads = 0;
-            leveled = true;
-            console.log(`⬆️ LEVEL UP! Now level ${user.level}`);
-            hapticFeedback('success');
-        }
-        
-        // Проверка блокировки блока
-        if (block.v >= 15) {
-            block.l = Date.now() + 86400000;
-            showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
-        }
-        
-        // Обновляем UI
-        fullRender();
-        
-        // Сохраняем на сервер
-        await saveToServer();
-        
-        showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
-        
-        if (leveled) {
-            showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
-        }
-    }
-    
-    // ============= ПРОСМОТР РЕКЛАМЫ =============
+    // ============= ПРОСМОТР РЕКЛАМЫ (МГНОВЕННОЕ НАЧИСЛЕНИЕ) =============
     async function watchAd(blockId) {
         if (isProcessingAd) {
             showNotification('Подождите, реклама уже загружается', 'info');
@@ -305,32 +202,46 @@
             adBtn.style.opacity = '0.5';
         }
         
-        showNotification('📺 Загрузка рекламы...', 'info');
+        const adReward = getRewardForCurrentLevel();
         
-        try {
-            const adSuccess = await showGigapubAd(blockId);
-            
-            if (adSuccess) {
-                const adReward = getRewardForCurrentLevel();
-                await giveReward(blockId, block, adReward);
-            } else {
-                console.log('❌ Ad failed, no reward');
-                showNotification('❌ Реклама не загрузилась, попробуйте позже', 'error');
-                if (adBtn) {
-                    adBtn.disabled = false;
-                    adBtn.style.opacity = '1';
-                }
-            }
-        } catch (error) {
-            console.error('Watch ad error:', error);
-            showNotification('❌ Ошибка при загрузке рекламы', 'error');
-            if (adBtn) {
-                adBtn.disabled = false;
-                adBtn.style.opacity = '1';
-            }
-        } finally {
-            isProcessingAd = false;
+        console.log(`💰 Мгновенное начисление +$${adReward.toFixed(4)}`);
+        
+        // Начисляем награду
+        user.balance += adReward;
+        user.ads += 1;
+        block.v += 1;
+        
+        console.log(`💰 Новый баланс: $${user.balance}`);
+        console.log(`📊 Блок ${blockId}: ${block.v}/15 просмотров`);
+        
+        let leveled = false;
+        while (user.ads >= 100) {
+            user.level += 1;
+            user.ads = 0;
+            leveled = true;
+            console.log(`⬆️ ПОВЫШЕНИЕ УРОВНЯ! Теперь уровень ${user.level}`);
+            hapticFeedback('success');
         }
+        
+        if (block.v >= 15) {
+            block.l = Date.now() + 86400000;
+            showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
+        }
+        
+        fullRender();
+        await saveToServer();
+        showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
+        
+        if (leveled) {
+            showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
+        }
+        
+        if (adBtn) {
+            adBtn.disabled = false;
+            adBtn.style.opacity = '1';
+        }
+        
+        isProcessingAd = false;
     }
     
     // ============= АВТО-РЕЖИМ =============
@@ -354,26 +265,22 @@
                 if (Date.now() >= b.l && b.v < 15) {
                     isAdShowing = true;
                     
-                    const adSuccess = await showGigapubAd(b.id);
+                    const reward = getRewardForCurrentLevel();
+                    user.balance += reward;
+                    user.ads += 1;
+                    b.v += 1;
                     
-                    if (adSuccess) {
-                        const reward = getRewardForCurrentLevel();
-                        user.balance += reward;
-                        user.ads += 1;
-                        b.v += 1;
-                        
-                        while (user.ads >= 100) {
-                            user.level += 1;
-                            user.ads = 0;
-                        }
-                        
-                        if (b.v >= 15) {
-                            b.l = Date.now() + 86400000;
-                        }
-                        
-                        fullRender();
-                        await saveToServer();
+                    while (user.ads >= 100) {
+                        user.level += 1;
+                        user.ads = 0;
                     }
+                    
+                    if (b.v >= 15) {
+                        b.l = Date.now() + 86400000;
+                    }
+                    
+                    fullRender();
+                    await saveToServer();
                     
                     isAdShowing = false;
                     anyAction = true;

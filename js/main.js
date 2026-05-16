@@ -37,6 +37,48 @@ function bindEvents() {
     }
 }
 
+async function loadUserData() {
+    if (!window.currentUserId) {
+        console.log('⏳ Ждём инициализацию пользователя...');
+        setTimeout(loadUserData, 1000);
+        return;
+    }
+    
+    console.log(`📥 Загружаем данные для ${window.currentUserId}`);
+    
+    try {
+        const response = await fetch(`${window.API_URL}/user/${window.currentUserId}`);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        
+        window.user = {
+            userId: data.user.userId,
+            username: data.user.username,
+            balance: data.user.balance,
+            level: data.user.level,
+            ads: data.user.ads,
+            avatar: data.user.avatar
+        };
+        
+        window.blocks = [
+            { id: 1, v: data.blocks['1']?.v || 0, l: data.blocks['1']?.l || 0 },
+            { id: 2, v: data.blocks['2']?.v || 0, l: data.blocks['2']?.l || 0 },
+            { id: 3, v: data.blocks['3']?.v || 0, l: data.blocks['3']?.l || 0 }
+        ];
+        
+        window.boosts = data.boosts;
+        
+        console.log(`✅ Загружено: баланс $${window.user.balance}, уровень ${window.user.level}`);
+        
+        if (window.fullRender) window.fullRender();
+        
+    } catch (error) {
+        console.error(`❌ Ошибка загрузки:`, error);
+    }
+}
+
 // ============= ЗАГРУЗКА ПРИЛОЖЕНИЯ =============
 document.addEventListener("DOMContentLoaded", async () => {
     console.log('🚀 Приложение загружается...');
@@ -47,19 +89,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     const balanceEl = document.getElementById("balance");
     if (balanceEl) balanceEl.innerText = "Loading...";
     
-    // Инициализация пользователя (данные придут с сервера)
     const connected = await window.initUser();
     
     if (!connected && window.showNotification) {
         window.showNotification('⚠️ Ошибка подключения к серверу', 'error');
     }
     
-    // Запуск сервисов
     if (window.startBoostChecker) window.startBoostChecker();
     if (window.startAutoClickerLoop) window.startAutoClickerLoop();
     if (window.initTasks) window.initTasks();
     
-    // Инициализация GIGAPUB
     if (window.checkGigaPubReady) {
         setTimeout(() => {
             console.log('🔍 Проверка GigaPub...');
@@ -67,7 +106,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         }, 2000);
     }
     
-    // КНОПКИ БУСТОВ
     const boostDoubleBtn = document.getElementById('boostDoubleBtn');
     if (boostDoubleBtn) {
         boostDoubleBtn.onclick = () => {
@@ -82,13 +120,15 @@ document.addEventListener("DOMContentLoaded", async () => {
         };
     }
     
-    // КНОПКА ВЫВОДА СРЕДСТВ
     const withdrawBtn = document.getElementById('withdrawBtn');
     if (withdrawBtn) {
         withdrawBtn.onclick = () => {
             if (window.withdrawFunds) window.withdrawFunds();
         };
     }
+    
+    // Дополнительная загрузка данных через 2 секунды
+    setTimeout(loadUserData, 2000);
     
     console.log('✅ Приложение загружено');
 });

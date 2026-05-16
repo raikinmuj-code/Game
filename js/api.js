@@ -12,22 +12,19 @@ async function initUser() {
     let userId = null;
     let referrerId = null;
     
-    // Получаем referrer из URL параметров Telegram
     if (window.Telegram?.WebApp) {
         const startParam = window.Telegram.WebApp.initDataUnsafe?.start_param;
         if (startParam) {
             referrerId = startParam;
-            debugLog(`🔗 Приглашён пользователем: ${referrerId}`, 'info');
+            console.log('🔗 Приглашён пользователем:', referrerId);
         }
     }
     
     if (telegramUser && telegramUser.id) {
         userId = `tg_${telegramUser.id}`;
-        debugLog(`✅ Telegram пользователь: ${telegramUser.username} ID: ${userId}`, 'success');
+        console.log('✅ Telegram пользователь:', telegramUser.username, 'ID:', userId);
     } else {
-        // Генерируем временный ID если нет Telegram
         userId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-        debugLog(`👤 Гостевой пользователь: ${userId}`, 'info');
     }
     
     const payload = {
@@ -42,7 +39,7 @@ async function initUser() {
     };
     
     try {
-        debugLog(`🔄 Подключение к серверу: ${API_URL}`, 'info');
+        console.log('🔄 Подключение к серверу:', API_URL);
         
         const response = await fetch(`${API_URL}/user`, {
             method: 'POST',
@@ -55,17 +52,17 @@ async function initUser() {
         }
         
         const data = await response.json();
-        debugLog(`✅ Данные с сервера получены`, 'success');
+        console.log('✅ Данные с сервера:', data);
         
         currentUserId = data.user.userId;
         
-        // Обновляем глобальные данные
         window.user = {
-            ...data.user,
             userId: data.user.userId,
+            username: data.user.username,
             balance: data.user.balance,
             level: data.user.level,
-            ads: data.user.ads
+            ads: data.user.ads,
+            avatar: data.user.avatar
         };
         
         window.blocks = [
@@ -81,9 +78,6 @@ async function initUser() {
             autoClickerUntil: 0
         };
         
-        debugLog(`💰 Баланс: $${window.user.balance.toFixed(4)}, Уровень: ${window.user.level}`, 'info');
-        
-        // Обновляем отображение
         const usernameSpan = document.getElementById("username");
         if (usernameSpan) {
             if (telegramUser?.username) {
@@ -118,15 +112,55 @@ async function initUser() {
             });
         }
         
-        // Load leaderboard in background
-        if (window.loadLeaderboard) window.loadLeaderboard();
+        // Принудительно загружаем свежие данные с сервера
+        await forceSyncFromServer();
         
         return true;
     } catch (error) {
-        debugLog(`❌ Ошибка подключения: ${error.message}`, 'error');
+        console.error('❌ Ошибка подключения:', error);
         if (window.showNotification) {
             window.showNotification('⚠️ Ошибка подключения к серверу', 'error');
         }
+        return false;
+    }
+}
+
+async function forceSyncFromServer() {
+    if (!currentUserId) {
+        console.log('❌ Нет userId для синхронизации');
+        return false;
+    }
+    
+    try {
+        console.log(`🔄 Принудительная синхронизация для ${currentUserId}`);
+        const response = await fetch(`${API_URL}/user/${currentUserId}`);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const data = await response.json();
+        
+        window.user = {
+            ...window.user,
+            balance: data.user.balance,
+            level: data.user.level,
+            ads: data.user.ads
+        };
+        
+        window.blocks = [
+            { id: 1, v: data.blocks['1']?.v || 0, l: data.blocks['1']?.l || 0 },
+            { id: 2, v: data.blocks['2']?.v || 0, l: data.blocks['2']?.l || 0 },
+            { id: 3, v: data.blocks['3']?.v || 0, l: data.blocks['3']?.l || 0 }
+        ];
+        
+        window.boosts = data.boosts;
+        
+        console.log(`✅ Синхронизировано: баланс $${window.user.balance}, уровень ${window.user.level}`);
+        
+        if (window.fullRender) window.fullRender();
+        
+        return true;
+    } catch (error) {
+        console.error(`❌ Ошибка синхронизации:`, error);
         return false;
     }
 }
@@ -188,7 +222,7 @@ async function loadLeaderboard() {
         
         return data;
     } catch (error) {
-        debugLog(`❌ Ошибка загрузки лидерборда: ${error.message}`, 'error');
+        console.error('❌ Ошибка загрузки лидерборда:', error);
         return [];
     }
 }
@@ -221,7 +255,6 @@ function showNotification(message, type = 'info') {
     }, 2500);
 }
 
-// Добавляем CSS анимации
 const style = document.createElement('style');
 style.textContent = `
     @keyframes slideUp {
@@ -252,6 +285,7 @@ window.initUser = initUser;
 window.loadLeaderboard = loadLeaderboard;
 window.showNotification = showNotification;
 window.updateInviteLink = updateInviteLink;
+window.forceSyncFromServer = forceSyncFromServer;
 window.currentUserId = currentUserId;
 window.API_URL = API_URL;
 window.BOT_USERNAME = BOT_USERNAME;

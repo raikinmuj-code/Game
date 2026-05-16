@@ -60,7 +60,6 @@
     let boosts = null;
     let auto = false;
     let autoLoopActive = false;
-    let isAdShowing = false;
     let isProcessingAd = false;
     let saveTimeout = null;
     let boostCheckInterval = null;
@@ -163,41 +162,10 @@
         saveTimeout = setTimeout(() => saveToServer(), 500);
     }
     
-    // ============= GIGAPUB РЕКЛАМА (РЕАЛЬНАЯ + НАЧИСЛЕНИЕ) =============
-    async function showGigapubAd(blockId) {
-        console.log(`📺 Показ рекламы для блока ${blockId}`);
-        
-        // Пытаемся показать реальную рекламу
-        if (typeof window.showGiga === 'function') {
-            try {
-                console.log('🎬 Вызов реальной рекламы GigaPub...');
-                
-                window.showGiga({
-                    onReward: () => {
-                        console.log('✅ Реальная реклама просмотрена!');
-                    },
-                    onClose: () => {
-                        console.log('🚪 Реклама закрыта');
-                    },
-                    onError: (err) => {
-                        console.error('❌ Ошибка рекламы:', err);
-                    }
-                });
-            } catch (error) {
-                console.error('❌ Ошибка вызова GigaPub:', error);
-            }
-        } else {
-            console.log('⚠️ GigaPub не найден, реклама не будет показана');
-        }
-        
-        // Награда начисляется мгновенно (уже в watchAd)
-        return true;
-    }
-    
-    // ============= ПРОСМОТР РЕКЛАМЫ =============
-    async function watchAd(blockId) {
+    // ============= ПРОСМОТР РЕКЛАМЫ (с возможностью вызова из авто) =============
+    async function watchAd(blockId, isAuto = false) {
         if (isProcessingAd) {
-            showNotification('Подождите, реклама уже загружается', 'info');
+            if (!isAuto) showNotification('Подождите, реклама уже загружается', 'info');
             return;
         }
         
@@ -207,17 +175,18 @@
         if (!block) return;
         
         if (Date.now() < block.l) {
-            showNotification('🔒 Блок заблокирован на 24 часа', 'error');
+            if (!isAuto) showNotification('🔒 Блок заблокирован на 24 часа', 'error');
             return;
         }
         
         if (block.v >= 15) {
-            showNotification('🔒 Блок достиг лимита', 'error');
+            if (!isAuto) showNotification('🔒 Блок достиг лимита', 'error');
             return;
         }
         
         isProcessingAd = true;
-        hapticFeedback('light');
+        
+        if (!isAuto) hapticFeedback('light');
         
         const adBtn = document.getElementById(`adBtn_${blockId}`);
         if (adBtn) {
@@ -225,12 +194,39 @@
             adBtn.style.opacity = '0.5';
         }
         
-        // Показываем рекламу (реальную)
-        await showGigapubAd(blockId);
+        // Показываем реальную рекламу
+        if (typeof window.showGiga === 'function') {
+            try {
+                console.log(`🎬 ${isAuto ? 'Авто' : 'Ручной'}: показ рекламы для блока ${blockId}`);
+                
+                await new Promise((resolve) => {
+                    window.showGiga({
+                        onReward: () => {
+                            console.log(`✅ ${isAuto ? 'Авто' : 'Ручной'}: реклама блока ${blockId} просмотрена!`);
+                            resolve(true);
+                        },
+                        onClose: () => {
+                            console.log(`🚪 ${isAuto ? 'Авто' : 'Ручной'}: реклама блока ${blockId} закрыта без награды`);
+                            resolve(false);
+                        },
+                        onError: (err) => {
+                            console.error(`❌ ${isAuto ? 'Авто' : 'Ручной'}: ошибка рекламы блока ${blockId}:`, err);
+                            resolve(false);
+                        }
+                    });
+                });
+            } catch (error) {
+                console.error('Ошибка вызова GigaPub:', error);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        } else {
+            console.log('⚠️ GigaPub не найден, реклама не будет показана');
+            await new Promise(r => setTimeout(r, 1000));
+        }
         
         const adReward = getRewardForCurrentLevel();
         
-        console.log(`💰 Начисление +$${adReward.toFixed(4)}`);
+        console.log(`💰 ${isAuto ? 'Авто' : 'Ручной'}: начисление +$${adReward.toFixed(4)}`);
         
         // Начисляем награду
         user.balance += adReward;
@@ -246,19 +242,20 @@
             user.ads = 0;
             leveled = true;
             console.log(`⬆️ ПОВЫШЕНИЕ УРОВНЯ! Теперь уровень ${user.level}`);
-            hapticFeedback('success');
+            if (!isAuto) hapticFeedback('success');
         }
         
         if (block.v >= 15) {
             block.l = Date.now() + 86400000;
-            showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
+            if (!isAuto) showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
         }
         
         fullRender();
         await saveToServer();
-        showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
         
-        if (leveled) {
+        if (!isAuto) showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
+        
+        if (leveled && !isAuto) {
             showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
         }
         
@@ -270,59 +267,53 @@
         isProcessingAd = false;
     }
     
-    // ============= АВТО-РЕЖИМ =============
+    // ============= АВТО-РЕЖИМ (реально нажимает на кнопки блоков) =============
     async function autoWatchLoop() {
         if (!auto) { autoLoopActive = false; return; }
         if (autoLoopActive) return;
         autoLoopActive = true;
         
-        console.log('🤖 Auto mode STARTED');
+        console.log('🤖 Авто-режим ЗАПУЩЕН');
         
         while (auto) {
-            if (isAdShowing || isProcessingAd) {
+            if (isProcessingAd) {
+                console.log('🤖 Ожидание завершения текущей рекламы...');
                 await new Promise(r => setTimeout(r, 2000));
                 continue;
             }
             
             let anyAction = false;
             
+            // Перебираем блоки по порядку (1, 2, 3)
             for (let b of blocks) {
                 if (!auto) break;
-                if (Date.now() >= b.l && b.v < 15) {
-                    isAdShowing = true;
+                
+                const notLocked = Date.now() >= b.l;
+                const notFull = b.v < 15;
+                
+                if (notLocked && notFull) {
+                    console.log(`🤖 Авто: нажимаем на блок ${b.id} (${b.v}/15 просмотров)`);
                     
-                    const reward = getRewardForCurrentLevel();
-                    user.balance += reward;
-                    user.ads += 1;
-                    b.v += 1;
+                    // Эмулируем нажатие на кнопку блока
+                    await watchAd(b.id, true); // true означает вызов из авто-режима
                     
-                    while (user.ads >= 100) {
-                        user.level += 1;
-                        user.ads = 0;
-                    }
-                    
-                    if (b.v >= 15) {
-                        b.l = Date.now() + 86400000;
-                    }
-                    
-                    fullRender();
-                    await saveToServer();
-                    
-                    isAdShowing = false;
                     anyAction = true;
-                    break;
+                    break; // После одного просмотра начинаем цикл заново
                 }
             }
             
             if (!anyAction) {
+                console.log('🤖 Нет доступных блоков, ожидание 5 секунд...');
                 await new Promise(r => setTimeout(r, 5000));
             } else {
-                await new Promise(r => setTimeout(r, 3000));
+                // Пауза между просмотрами (чтобы не спамить)
+                console.log('🤖 Пауза 2 секунды перед следующим просмотром...');
+                await new Promise(r => setTimeout(r, 2000));
             }
         }
         
         autoLoopActive = false;
-        console.log('🤖 Auto mode STOPPED');
+        console.log('🤖 Авто-режим ОСТАНОВЛЕН');
     }
     
     function toggleAutoMode() {
@@ -620,7 +611,7 @@
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 if (!btn.disabled && !isProcessingAd) {
-                    watchAd(blockId);
+                    watchAd(blockId, false);
                 }
             });
         });

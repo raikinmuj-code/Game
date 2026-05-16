@@ -50,7 +50,6 @@
     }
     
     // ============= API =============
-    // ПРОВЕРЬ ЭТОТ URL - ДОЛЖЕН БЫТЬ ТВОИМ АКТУАЛЬНЫМ
     const API_BASE_URL = 'https://serv-production-2773.up.railway.app';
     const API_URL = `${API_BASE_URL}/api`;
     const BOT_USERNAME = 'Duckkadsbot';
@@ -151,10 +150,8 @@
             if (response.ok) {
                 console.log(`💾 Saved: $${user.balance}`);
                 return true;
-            } else {
-                console.error('Save failed:', response.status);
-                return false;
             }
+            return false;
         } catch (err) { 
             console.error('Save error:', err); 
             return false;
@@ -166,7 +163,7 @@
         saveTimeout = setTimeout(() => saveToServer(), 500);
     }
     
-    // ============= GIGAPUB РЕКЛАМА =============
+    // ============= GIGAPUB РЕКЛАМА (РАБОЧАЯ) =============
     let gigapubReady = false;
     let gigapubCheckAttempts = 0;
     
@@ -211,13 +208,70 @@
                     resolve(false);
                 }
             } else {
-                console.log('⚠️ GigaPub not ready, using test mode');
+                console.log('⚠️ GigaPub not ready, trying again in 1 second');
                 setTimeout(() => {
-                    console.log('✅ Test mode: reward awarded');
-                    resolve(true);
+                    if (gigapubReady && typeof window.showGiga === 'function') {
+                        try {
+                            window.showGiga({
+                                onReward: () => {
+                                    console.log('✅ Real ad rewarded!');
+                                    resolve(true);
+                                },
+                                onClose: () => {
+                                    resolve(false);
+                                },
+                                onError: () => {
+                                    resolve(false);
+                                }
+                            });
+                        } catch (error) {
+                            resolve(false);
+                        }
+                    } else {
+                        console.error('❌ GigaPub still not ready');
+                        resolve(false);
+                    }
                 }, 1000);
             }
         });
+    }
+    
+    // ============= НАЧИСЛЕНИЕ НАГРАДЫ =============
+    async function giveReward(blockId, block, adReward) {
+        user.balance += adReward;
+        user.ads += 1;
+        block.v += 1;
+        
+        console.log(`💰 +$${adReward.toFixed(4)} | New balance: $${user.balance}`);
+        console.log(`📊 Block ${blockId}: ${block.v}/15 views`);
+        
+        // Проверка повышения уровня
+        let leveled = false;
+        while (user.ads >= 100) {
+            user.level += 1;
+            user.ads = 0;
+            leveled = true;
+            console.log(`⬆️ LEVEL UP! Now level ${user.level}`);
+            hapticFeedback('success');
+        }
+        
+        // Проверка блокировки блока
+        if (block.v >= 15) {
+            block.l = Date.now() + 86400000;
+            showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
+        }
+        
+        // Обновляем UI
+        fullRender();
+        
+        // Сохраняем на сервер
+        await saveToServer();
+        
+        showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
+        
+        if (leveled) {
+            showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
+        }
     }
     
     // ============= ПРОСМОТР РЕКЛАМЫ =============
@@ -258,35 +312,10 @@
             
             if (adSuccess) {
                 const adReward = getRewardForCurrentLevel();
-                
-                user.balance += adReward;
-                user.ads += 1;
-                block.v += 1;
-                
-                console.log(`🎬 +$${adReward.toFixed(4)} | Balance: $${user.balance}`);
-                
-                let leveled = false;
-                while (user.ads >= 100) {
-                    user.level += 1;
-                    user.ads = 0;
-                    leveled = true;
-                    hapticFeedback('success');
-                }
-                
-                if (block.v >= 15) {
-                    block.l = Date.now() + 86400000;
-                    showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
-                }
-                
-                fullRender();
-                await saveToServer();
-                showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
-                
-                if (leveled) {
-                    showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
-                }
+                await giveReward(blockId, block, adReward);
             } else {
-                showNotification('❌ Реклама не загрузилась', 'error');
+                console.log('❌ Ad failed, no reward');
+                showNotification('❌ Реклама не загрузилась, попробуйте позже', 'error');
                 if (adBtn) {
                     adBtn.disabled = false;
                     adBtn.style.opacity = '1';
@@ -294,7 +323,7 @@
             }
         } catch (error) {
             console.error('Watch ad error:', error);
-            showNotification('❌ Ошибка', 'error');
+            showNotification('❌ Ошибка при загрузке рекламы', 'error');
             if (adBtn) {
                 adBtn.disabled = false;
                 adBtn.style.opacity = '1';
@@ -766,7 +795,6 @@
             const data = await response.json();
             console.log('✅ Server response:', data);
             
-            // Сохраняем данные
             user = {
                 balance: data.balance || 0,
                 level: data.level || 1,
@@ -789,7 +817,6 @@
             console.log('💰 Balance loaded:', user.balance);
             console.log('📊 Blocks:', blocks);
             
-            // Обновляем UI
             const usernameSpan = document.getElementById("username");
             if (usernameSpan) {
                 usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.username || 'User');
@@ -807,7 +834,7 @@
             return true;
         } catch (error) {
             console.error('❌ Connection error:', error);
-            showNotification('⚠️ Ошибка подключения к серверу: ' + error.message, 'error');
+            showNotification('⚠️ Ошибка подключения к серверу', 'error');
             return false;
         }
     }

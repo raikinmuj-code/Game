@@ -14,7 +14,6 @@
             
             if (startParam) {
                 localStorage.setItem('referrerId', startParam);
-                console.log('🔗 Referrer:', startParam);
             }
             
             if (user) {
@@ -44,10 +43,9 @@
     
     function hapticFeedback(type = 'light') {
         if (tg?.HapticFeedback) {
-            const impactMap = { light: 'light', medium: 'medium', heavy: 'heavy' };
-            const notificationMap = { success: 'success', error: 'error' };
-            if (impactMap[type]) tg.HapticFeedback.impactOccurred(impactMap[type]);
-            if (notificationMap[type]) tg.HapticFeedback.notificationOccurred(notificationMap[type]);
+            if (type === 'success') tg.HapticFeedback.notificationOccurred('success');
+            else if (type === 'error') tg.HapticFeedback.notificationOccurred('error');
+            else tg.HapticFeedback.impactOccurred(type);
         }
     }
     
@@ -63,6 +61,7 @@
     let auto = false;
     let autoLoopActive = false;
     let isAdShowing = false;
+    let isProcessingAd = false; // Защита от двойных нажатий
     let saveTimeout = null;
     let boostCheckInterval = null;
     let autoClickerInterval = null;
@@ -104,10 +103,9 @@
         const now = Date.now();
         if (now >= lockUntil) return null;
         const diffMs = lockUntil - now;
-        const totalSeconds = Math.floor(diffMs / 1000);
-        const hours = Math.floor(totalSeconds / 3600);
-        const minutes = Math.floor((totalSeconds % 3600) / 60);
-        const seconds = totalSeconds % 60;
+        const hours = Math.floor(diffMs / 3600000);
+        const minutes = Math.floor((diffMs % 3600000) / 60000);
+        const seconds = Math.floor((diffMs % 60000) / 1000);
         return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
     }
     
@@ -142,11 +140,12 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: currentUserId,
-                    balance: user.balance,
-                    level: user.level,
-                    ads: user.ads,
-                    blocks: blocksData,
-                    boosts: boosts
+                    user: {
+                        balance: user.balance,
+                        level: user.level,
+                        ads: user.ads
+                    },
+                    blocks: blocksData
                 })
             });
             
@@ -167,6 +166,7 @@
     
     // ============= GIGAPUB РЕКЛАМА =============
     let gigapubReady = false;
+    let gigapubCheckAttempts = 0;
     
     function checkGigaPubReady() {
         if (typeof window.showGiga !== 'undefined') {
@@ -177,76 +177,149 @@
         return false;
     }
     
-    async function showGigapubAd(blockId, onRewardCallback) {
-        let attempts = 0;
-        while (!gigapubReady && attempts < 30) {
-            await new Promise(r => setTimeout(r, 100));
+    // Запускаем проверку GigaPub
+    setInterval(() => {
+        if (!gigapubReady && gigapubCheckAttempts < 50) {
             checkGigaPubReady();
-            attempts++;
+            gigapubCheckAttempts++;
         }
-        
-        if (gigapubReady && typeof window.showGiga === 'function') {
-            try {
-                await window.showGiga();
-                if (onRewardCallback) onRewardCallback(true);
-                return;
-            } catch (error) {
-                console.error('Ad error:', error);
+    }, 500);
+    
+    async function showGigapubAd(blockId) {
+        return new Promise((resolve) => {
+            console.log(`📺 Showing ad for block ${blockId}`);
+            
+            // Если GigaPub готов — показываем реальную рекламу
+            if (gigapubReady && typeof window.showGiga === 'function') {
+                try {
+                    window.showGiga({
+                        onReward: () => {
+                            console.log('✅ Real ad rewarded!');
+                            resolve(true);
+                        },
+                        onClose: () => {
+                            console.log('Ad closed without reward');
+                            resolve(false);
+                        },
+                        onError: (err) => {
+                            console.error('Ad error:', err);
+                            resolve(false);
+                        }
+                    });
+                } catch (error) {
+                    console.error('showGiga error:', error);
+                    resolve(false);
+                }
+            } else {
+                // ВРЕМЕННО: для теста начисляем через 1 секунду (потом убрать)
+                console.log('⚠️ GigaPub not ready, using test mode');
+                setTimeout(() => {
+                    console.log('✅ Test mode: reward awarded');
+                    resolve(true);
+                }, 1000);
             }
-        }
-        
-        setTimeout(() => {
-            if (onRewardCallback) onRewardCallback(true);
-        }, 1000);
+        });
     }
     
-    // ============= ПРОСМОТР РЕКЛАМЫ =============
+    // ============= ПРОСМОТР РЕКЛАМЫ (с защитой от двойного клика) =============
     async function watchAd(blockId) {
-        if (!user || !blocks) return;
+        // Защита от двойного нажатия
+        if (isProcessingAd) {
+            console.log('⏳ Already processing ad, please wait');
+            showNotification('Подождите, реклама уже загружается', 'info');
+            return;
+        }
         
-        hapticFeedback('light');
+        if (!user || !blocks) return;
         
         const block = blocks.find(b => b.id === blockId);
         if (!block) return;
         
+        // Проверка блокировки
         if (Date.now() < block.l) {
             showNotification('🔒 Блок заблокирован на 24 часа', 'error');
             return;
         }
         
-        const adReward = getRewardForCurrentLevel();
-        
-        // Начисляем награду
-        user.balance += adReward;
-        user.ads += 1;
-        block.v += 1;
-        
-        console.log(`🎬 Watch ad block ${blockId}: +$${adReward.toFixed(4)}, balance: $${user.balance}`);
-        
-        let leveled = false;
-        while (user.ads >= 100) {
-            user.level += 1;
-            user.ads = 0;
-            leveled = true;
-            console.log(`⬆️ LEVEL UP! Now level ${user.level}`);
-        }
-        
+        // Проверка лимита просмотров
         if (block.v >= 15) {
-            block.l = Date.now() + 86400000;
-            showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
+            showNotification('🔒 Блок уже достиг лимита просмотров', 'error');
+            return;
         }
         
-        fullRender();
+        // Устанавливаем флаг, чтобы блокировать повторные клики
+        isProcessingAd = true;
+        hapticFeedback('light');
         
-        // Сохраняем
-        const saved = await saveToServer();
-        if (saved) {
-            showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
-        } else {
-            showNotification(`⚠️ +$${adReward.toFixed(4)} но сохранение не удалось`, 'warning');
+        // Блокируем кнопку визуально
+        const adBtn = document.getElementById(`adBtn_${blockId}`);
+        if (adBtn) {
+            adBtn.disabled = true;
+            adBtn.style.opacity = '0.5';
         }
         
-        if (leveled) hapticFeedback('success');
+        showNotification('📺 Загрузка рекламы...', 'info');
+        
+        try {
+            // Показываем рекламу и ждём результат
+            const adSuccess = await showGigapubAd(blockId);
+            
+            if (adSuccess) {
+                const adReward = getRewardForCurrentLevel();
+                
+                // Начисляем награду
+                user.balance += adReward;
+                user.ads += 1;
+                block.v += 1;
+                
+                console.log(`🎬 +$${adReward.toFixed(4)} | Balance: $${user.balance}`);
+                
+                // Проверка повышения уровня
+                let leveled = false;
+                while (user.ads >= 100) {
+                    user.level += 1;
+                    user.ads = 0;
+                    leveled = true;
+                    console.log(`⬆️ LEVEL UP! Now level ${user.level}`);
+                    hapticFeedback('success');
+                }
+                
+                // Проверка блокировки блока
+                if (block.v >= 15) {
+                    block.l = Date.now() + 86400000;
+                    showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
+                }
+                
+                // Обновляем UI
+                fullRender();
+                
+                // Сохраняем на сервер
+                await saveToServer();
+                
+                showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
+                
+                if (leveled) {
+                    showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
+                }
+            } else {
+                showNotification('❌ Реклама не загрузилась, попробуйте позже', 'error');
+                // Разблокируем кнопку при ошибке
+                if (adBtn) {
+                    adBtn.disabled = false;
+                    adBtn.style.opacity = '1';
+                }
+            }
+        } catch (error) {
+            console.error('Watch ad error:', error);
+            showNotification('❌ Ошибка при загрузке рекламы', 'error');
+            if (adBtn) {
+                adBtn.disabled = false;
+                adBtn.style.opacity = '1';
+            }
+        } finally {
+            // Снимаем блокировку после завершения
+            isProcessingAd = false;
+        }
     }
     
     // ============= АВТО-РЕЖИМ =============
@@ -255,9 +328,11 @@
         if (autoLoopActive) return;
         autoLoopActive = true;
         
+        console.log('🤖 Auto mode STARTED');
+        
         while (auto) {
-            if (isAdShowing) {
-                await new Promise(r => setTimeout(r, 1000));
+            if (isAdShowing || isProcessingAd) {
+                await new Promise(r => setTimeout(r, 2000));
                 continue;
             }
             
@@ -268,44 +343,52 @@
                 if (Date.now() >= b.l && b.v < 15) {
                     isAdShowing = true;
                     
-                    await new Promise((resolve) => {
-                        showGigapubAd(b.id, async (success) => {
-                            if (success) {
-                                const reward = getRewardForCurrentLevel();
-                                user.balance += reward;
-                                user.ads += 1;
-                                b.v += 1;
-                                
-                                while (user.ads >= 100) {
-                                    user.level += 1;
-                                    user.ads = 0;
-                                }
-                                
-                                if (b.v >= 15) b.l = Date.now() + 86400000;
-                                
-                                fullRender();
-                                await saveToServer();
-                            }
-                            isAdShowing = false;
-                            resolve();
-                        });
-                    });
+                    const adSuccess = await showGigapubAd(b.id);
                     
+                    if (adSuccess) {
+                        const reward = getRewardForCurrentLevel();
+                        user.balance += reward;
+                        user.ads += 1;
+                        b.v += 1;
+                        
+                        while (user.ads >= 100) {
+                            user.level += 1;
+                            user.ads = 0;
+                        }
+                        
+                        if (b.v >= 15) {
+                            b.l = Date.now() + 86400000;
+                        }
+                        
+                        fullRender();
+                        await saveToServer();
+                    }
+                    
+                    isAdShowing = false;
                     anyAction = true;
                     break;
                 }
             }
             
-            if (!anyAction) await new Promise(r => setTimeout(r, 5000));
-            else await new Promise(r => setTimeout(r, 2000));
+            if (!anyAction) {
+                await new Promise(r => setTimeout(r, 5000));
+            } else {
+                await new Promise(r => setTimeout(r, 3000));
+            }
         }
         
         autoLoopActive = false;
+        console.log('🤖 Auto mode STOPPED');
     }
     
     function toggleAutoMode() {
         auto = !auto;
-        if (auto && !autoLoopActive) autoWatchLoop();
+        if (auto && !autoLoopActive) {
+            autoWatchLoop();
+            showNotification('🤖 Авто-режим ВКЛЮЧЁН', 'success');
+        } else if (!auto) {
+            showNotification('🤖 Авто-режим ВЫКЛЮЧЁН', 'info');
+        }
         fullRender();
     }
     
@@ -325,6 +408,7 @@
             boosts.autoClicker = false;
             boosts.autoClickerUntil = 0;
             updated = true;
+            showNotification('⏰ Авто-кликер закончился', 'info');
         }
         
         if (updated) { fullRender(); saveToServer(); }
@@ -337,6 +421,11 @@
     
     async function buyBoost(boostType, cost, durationHours) {
         if (!user) return false;
+        
+        if (isProcessingAd) {
+            showNotification('Подождите, реклама загружается', 'info');
+            return false;
+        }
         
         if (user.balance < cost) {
             showAlert(`❌ Недостаточно средств! Нужно $${cost.toFixed(4)}`);
@@ -400,25 +489,26 @@
     
     // ============= ЗАДАНИЯ =============
     async function completeTask(taskId, reward) {
+        if (isProcessingAd) {
+            showNotification('Подождите, реклама загружается', 'info');
+            return false;
+        }
+        
         try {
-            const response = await fetch(`${API_URL}/task`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: currentUserId, taskId })
-            });
-            const result = await response.json();
-            
-            if (result.success) {
-                user.balance += reward;
-                fullRender();
-                await saveToServer();
-                hapticFeedback('success');
-                showNotification(`🎁 Получено +$${reward} за задание!`, 'success');
-                return true;
-            } else {
-                showNotification(result.message || 'Задание уже выполнено', 'info');
+            // Временно без серверной проверки
+            const taskKey = `task_${taskId}_completed`;
+            if (localStorage.getItem(taskKey)) {
+                showNotification('Задание уже выполнено', 'info');
                 return false;
             }
+            
+            localStorage.setItem(taskKey, 'true');
+            user.balance += reward;
+            fullRender();
+            await saveToServer();
+            hapticFeedback('success');
+            showNotification(`🎁 Получено +$${reward} за задание!`, 'success');
+            return true;
         } catch (error) {
             console.error('Task error:', error);
             return false;
@@ -428,6 +518,11 @@
     // ============= ВЫВОД СРЕДСТВ =============
     async function withdrawFunds() {
         if (!user) return;
+        
+        if (isProcessingAd) {
+            showNotification('Подождите, реклама загружается', 'info');
+            return;
+        }
         
         if (user.balance < 0.01) {
             showAlert('❌ Минимальная сумма для вывода: $0.01');
@@ -547,6 +642,7 @@
             const locked = Date.now() < b.l;
             const viewsPercent = (b.v / 15) * 100;
             const statusText = locked ? t("locked") : t("active");
+            const isDisabled = locked || isProcessingAd;
             
             html += `
                 <div class="card" data-block-id="${b.id}">
@@ -561,9 +657,9 @@
                     <div class="small-bar">
                         <div class="small-fill" style="width:${viewsPercent}%"></div>
                     </div>
-                    <button class="btn" id="adBtn_${b.id}" ${locked ? 'disabled' : ''} onclick="window.watchAd && window.watchAd(${b.id})">
+                    <button class="btn watch-ad-btn" data-block-id="${b.id}" ${isDisabled ? 'disabled' : ''}>
                         ${t("watch")}
-                        ${locked ? '<span class="btn-timer-text" id="timerSpan_' + b.id + '">(--:--:--)</span>' : ''}
+                        ${locked ? '<span class="btn-timer-text" data-block-id="' + b.id + '">(--:--:--)</span>' : ''}
                     </button>
                 </div>
             `;
@@ -571,14 +667,29 @@
         
         cardsDiv.innerHTML = html;
         
+        // Привязываем обработчики к кнопкам
+        document.querySelectorAll('.watch-ad-btn').forEach(btn => {
+            const blockId = parseInt(btn.getAttribute('data-block-id'));
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                if (!btn.disabled && !isProcessingAd) {
+                    watchAd(blockId);
+                }
+            });
+        });
+        
+        // Таймеры для заблокированных блоков
         blocks.forEach(b => {
             if (Date.now() < b.l) {
-                const timerSpan = document.getElementById(`timerSpan_${b.id}`);
+                const timerSpan = document.querySelector(`.btn-timer-text[data-block-id="${b.id}"]`);
                 if (timerSpan) {
                     const updateTimer = () => {
                         const remaining = formatLockTime(b.l);
-                        if (remaining) timerSpan.innerText = `(${remaining})`;
-                        else fullRender();
+                        if (remaining) {
+                            timerSpan.innerText = `(${remaining})`;
+                        } else {
+                            fullRender();
+                        }
                     };
                     updateTimer();
                     const intervalId = setInterval(updateTimer, 1000);
@@ -604,12 +715,13 @@
     
     function showNotification(message, type = 'info') {
         const notice = document.createElement('div');
+        const bgColor = type === 'error' ? '#ff4444' : (type === 'success' ? '#4ade80' : '#2AABEE');
         notice.style.cssText = `
             position: fixed;
             bottom: 90px;
             left: 50%;
             transform: translateX(-50%);
-            background: ${type === 'error' ? '#ff4444' : (type === 'success' ? '#4ade80' : '#2AABEE')};
+            background: ${bgColor};
             color: #fff;
             padding: 12px 20px;
             border-radius: 25px;
@@ -618,8 +730,8 @@
             z-index: 1000;
             text-align: center;
             white-space: nowrap;
-            animation: slideUp 0.3s ease-out;
             box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            animation: slideUp 0.3s ease-out;
         `;
         notice.innerText = message;
         document.body.appendChild(notice);
@@ -666,29 +778,26 @@
             console.log('✅ Server data:', data);
             
             user = {
-                userId: data.userId,
-                username: data.username,
-                balance: data.balance,
-                level: data.level,
-                ads: data.ads,
-                avatar: data.avatar
+                balance: data.user.balance,
+                level: data.user.level,
+                ads: data.user.ads
             };
             
             blocks = [
-                { id: 1, v: data.blocks['1'].v, l: data.blocks['1'].l },
-                { id: 2, v: data.blocks['2'].v, l: data.blocks['2'].l },
-                { id: 3, v: data.blocks['3'].v, l: data.blocks['3'].l }
+                { id: 1, v: data.blocks['1']?.v || 0, l: data.blocks['1']?.l || 0 },
+                { id: 2, v: data.blocks['2']?.v || 0, l: data.blocks['2']?.l || 0 },
+                { id: 3, v: data.blocks['3']?.v || 0, l: data.blocks['3']?.l || 0 }
             ];
             
-            boosts = data.boosts;
+            boosts = data.boosts || { doubleIncome: false, autoClicker: false, doubleIncomeUntil: 0, autoClickerUntil: 0 };
             
             const usernameSpan = document.getElementById("username");
             if (usernameSpan) {
-                usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.username || 'Guest');
+                usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.user.username || 'Guest');
             }
             
             const avatarImg = document.getElementById("avatar");
-            if (avatarImg) avatarImg.src = data.avatar || 'https://i.pravatar.cc/100';
+            if (avatarImg) avatarImg.src = data.user.avatar || 'https://i.pravatar.cc/100';
             
             const userIdSpan = document.getElementById("userid");
             if (userIdSpan && telegramUser) userIdSpan.innerText = `ID: ${telegramUser.id}`;
@@ -786,12 +895,24 @@
         if (user && user.balance > 0) {
             navigator.sendBeacon(`${API_URL}/save`, JSON.stringify({
                 userId: currentUserId,
-                balance: user.balance,
-                level: user.level,
-                ads: user.ads
+                user: { balance: user.balance, level: user.level, ads: user.ads }
             }));
         }
     });
+    
+    // Добавляем CSS анимации
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            to { opacity: 1; transform: translateX(-50%) translateY(0); }
+        }
+        @keyframes fadeOut {
+            from { opacity: 1; transform: translateX(-50%) translateY(0); }
+            to { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+        }
+    `;
+    document.head.appendChild(style);
     
     // ============= ЗАПУСК =============
     document.addEventListener("DOMContentLoaded", async () => {
@@ -805,21 +926,6 @@
         startBoostChecker();
         startAutoClickerLoop();
         
-        setTimeout(() => checkGigaPubReady(), 2000);
-        
-        const style = document.createElement('style');
-        style.textContent = `
-            @keyframes slideUp {
-                from { opacity: 0; transform: translateX(-50%) translateY(20px); }
-                to { opacity: 1; transform: translateX(-50%) translateY(0); }
-            }
-            @keyframes fadeOut {
-                from { opacity: 1; transform: translateX(-50%) translateY(0); }
-                to { opacity: 0; transform: translateX(-50%) translateY(-20px); }
-            }
-        `;
-        document.head.appendChild(style);
-        
         console.log('✅ Duck Ads ready!');
     });
     
@@ -832,5 +938,4 @@
     window.hapticFeedback = hapticFeedback;
     window.showAlert = showAlert;
     window.showConfirm = showConfirm;
-    window.currentUserId = () => currentUserId;
 })();

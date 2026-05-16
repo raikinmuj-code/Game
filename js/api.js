@@ -17,16 +17,17 @@ async function initUser() {
         const startParam = window.Telegram.WebApp.initDataUnsafe?.start_param;
         if (startParam) {
             referrerId = startParam;
-            console.log('🔗 Приглашён пользователем:', referrerId);
+            debugLog(`🔗 Приглашён пользователем: ${referrerId}`, 'info');
         }
     }
     
     if (telegramUser && telegramUser.id) {
         userId = `tg_${telegramUser.id}`;
-        console.log('✅ Telegram пользователь:', telegramUser.username, 'ID:', userId);
+        debugLog(`✅ Telegram пользователь: ${telegramUser.username} ID: ${userId}`, 'success');
     } else {
         // Генерируем временный ID если нет Telegram
         userId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+        debugLog(`👤 Гостевой пользователь: ${userId}`, 'info');
     }
     
     const payload = {
@@ -41,7 +42,7 @@ async function initUser() {
     };
     
     try {
-        console.log('🔄 Подключение к серверу:', API_URL);
+        debugLog(`🔄 Подключение к серверу: ${API_URL}`, 'info');
         
         const response = await fetch(`${API_URL}/user`, {
             method: 'POST',
@@ -54,23 +55,33 @@ async function initUser() {
         }
         
         const data = await response.json();
-        console.log('✅ Данные с сервера:', data);
+        debugLog(`✅ Данные с сервера получены`, 'success');
         
-        currentUserId = data.user.id;
+        currentUserId = data.user.userId;
         
-        // Обновляем данные в window
-        if (window.syncFromServer) {
-            await window.syncFromServer();
-        } else {
-            // fallback
-            window.user = data.user;
-            window.blocks = [
-                { id: 1, v: data.blocks['1']?.v || 0, l: data.blocks['1']?.l || 0 },
-                { id: 2, v: data.blocks['2']?.v || 0, l: data.blocks['2']?.l || 0 },
-                { id: 3, v: data.blocks['3']?.v || 0, l: data.blocks['3']?.l || 0 }
-            ];
-            window.boosts = data.boosts;
-        }
+        // Обновляем глобальные данные
+        window.user = {
+            ...data.user,
+            userId: data.user.userId,
+            balance: data.user.balance,
+            level: data.user.level,
+            ads: data.user.ads
+        };
+        
+        window.blocks = [
+            { id: 1, v: data.blocks['1']?.v || 0, l: data.blocks['1']?.l || 0 },
+            { id: 2, v: data.blocks['2']?.v || 0, l: data.blocks['2']?.l || 0 },
+            { id: 3, v: data.blocks['3']?.v || 0, l: data.blocks['3']?.l || 0 }
+        ];
+        
+        window.boosts = data.boosts || {
+            doubleIncome: false,
+            doubleIncomeUntil: 0,
+            autoClicker: false,
+            autoClickerUntil: 0
+        };
+        
+        debugLog(`💰 Баланс: $${window.user.balance.toFixed(4)}, Уровень: ${window.user.level}`, 'info');
         
         // Обновляем отображение
         const usernameSpan = document.getElementById("username");
@@ -107,9 +118,12 @@ async function initUser() {
             });
         }
         
+        // Load leaderboard in background
+        if (window.loadLeaderboard) window.loadLeaderboard();
+        
         return true;
     } catch (error) {
-        console.error('❌ Ошибка подключения:', error);
+        debugLog(`❌ Ошибка подключения: ${error.message}`, 'error');
         if (window.showNotification) {
             window.showNotification('⚠️ Ошибка подключения к серверу', 'error');
         }
@@ -174,7 +188,7 @@ async function loadLeaderboard() {
         
         return data;
     } catch (error) {
-        console.error('❌ Ошибка загрузки лидерборда:', error);
+        debugLog(`❌ Ошибка загрузки лидерборда: ${error.message}`, 'error');
         return [];
     }
 }
@@ -186,29 +200,50 @@ function showNotification(message, type = 'info') {
         bottom: 90px;
         left: 50%;
         transform: translateX(-50%);
-        background: ${type === 'error' ? '#ff4444' : '#2AABEE'};
+        background: ${type === 'error' ? '#ff4444' : (type === 'success' ? '#4ade80' : '#2AABEE')};
         color: #fff;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 12px;
+        padding: 12px 20px;
+        border-radius: 25px;
+        font-size: 13px;
+        font-weight: 600;
         z-index: 100;
         text-align: center;
         white-space: nowrap;
-        animation: fadeOut 3s forwards;
+        animation: slideUp 0.3s ease-out;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     `;
     notice.innerText = message;
     document.body.appendChild(notice);
     
-    setTimeout(() => notice.remove(), 3000);
+    setTimeout(() => {
+        notice.style.animation = 'fadeOut 0.3s ease-out';
+        setTimeout(() => notice.remove(), 300);
+    }, 2500);
 }
 
-// Добавляем CSS анимацию
+// Добавляем CSS анимации
 const style = document.createElement('style');
 style.textContent = `
+    @keyframes slideUp {
+        from {
+            opacity: 0;
+            transform: translateX(-50%) translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+    }
+    
     @keyframes fadeOut {
-        0% { opacity: 1; }
-        70% { opacity: 1; }
-        100% { opacity: 0; visibility: hidden; }
+        from {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        to {
+            opacity: 0;
+            transform: translateX(-50%) translateY(-20px);
+        }
     }
 `;
 document.head.appendChild(style);

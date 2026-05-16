@@ -181,63 +181,47 @@ async function watchAd(blockId) {
     
     if (Date.now() < block.l) {
         if (window.showNotification) {
-            window.showNotification('🔒 Блок заблокирован на 24 часа', 'error');
+            window.showNotification('🔒 Blocked for 24 hours', 'error');
         }
         return;
     }
     
-    const adReward = getRewardForCurrentLevel();
+    const adReward = window.getRewardForCurrentLevel();
     
-    const giveReward = () => {
-        window.user.balance += adReward;
-        window.user.ads += 1;
-        block.v += 1;
-        
-        if (window.fullRender) window.fullRender();
-        saveToServer();
-        
-        if (window.showNotification) {
-            window.showNotification(`✅ +$${adReward.toFixed(4)} за просмотр!`, 'success');
-        }
-        
-        let leveled = false;
-        while (window.user.ads >= 100) {
-            window.user.level += 1;
-            window.user.ads = 0;
-            leveled = true;
-        }
-        
-        if (block.v >= 15) {
-            block.l = Date.now() + 86400000;
-            if (window.showNotification) {
-                window.showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа!`, 'info');
-            }
-        }
-        
-        if (window.fullRender) window.fullRender();
-        saveToServer();
-        
-        if (leveled && window.hapticFeedback) {
-            window.hapticFeedback('success');
-        }
-    };
+    // ГЛАВНОЕ: начисляем награду
+    window.user.balance += adReward;
+    window.user.ads += 1;
+    block.v += 1;
     
-    if (window.showGigapubAd) {
-        if (window.showNotification) {
-            window.showNotification('📺 Загрузка рекламы...', 'info');
-        }
-        
-        window.showGigapubAd(blockId, (success) => {
-            if (success) {
-                giveReward();
-            } else {
-                if (window.showNotification) {
-                    window.showNotification('❌ Реклама не загрузилась', 'error');
-                }
-            }
-        });
-    } else {
-        giveReward();
+    console.log(`🎬 Watch ad: +$${adReward.toFixed(4)}, new balance: $${window.user.balance}`);
+    
+    // Проверяем повышение уровня
+    let leveled = false;
+    while (window.user.ads >= 100) {
+        window.user.level += 1;
+        window.user.ads = 0;
+        leveled = true;
+        console.log(`⬆️ LEVEL UP! Now level ${window.user.level}`);
+    }
+    
+    // Проверяем блокировку блока
+    if (block.v >= 15) {
+        block.l = Date.now() + 86400000;
+        console.log(`🔒 Block ${blockId} locked for 24 hours`);
+    }
+    
+    // Обновляем UI
+    if (window.fullRender) window.fullRender();
+    
+    // СОХРАНЯЕМ на сервер
+    await window.saveToServer();
+    
+    if (window.showNotification) {
+        window.showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
+    }
+    
+    if (leveled && window.hapticFeedback) {
+        window.hapticFeedback('success');
     }
 }
 

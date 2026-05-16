@@ -61,7 +61,7 @@
     let auto = false;
     let autoLoopActive = false;
     let isAdShowing = false;
-    let isProcessingAd = false; // Защита от двойных нажатий
+    let isProcessingAd = false;
     let saveTimeout = null;
     let boostCheckInterval = null;
     let autoClickerInterval = null;
@@ -129,23 +129,21 @@
     async function saveToServer() {
         if (!user || !blocks || !currentUserId) return false;
         
-        const blocksData = {};
-        for (let i = 0; i < blocks.length; i++) {
-            blocksData[i + 1] = { v: blocks[i].v, l: blocks[i].l };
-        }
-        
         try {
             const response = await fetch(`${API_URL}/save`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     userId: currentUserId,
-                    user: {
-                        balance: user.balance,
-                        level: user.level,
-                        ads: user.ads
+                    balance: user.balance,
+                    level: user.level,
+                    ads: user.ads,
+                    blocks: {
+                        '1': { v: blocks[0].v, l: blocks[0].l },
+                        '2': { v: blocks[1].v, l: blocks[1].l },
+                        '3': { v: blocks[2].v, l: blocks[2].l }
                     },
-                    blocks: blocksData
+                    boosts: boosts
                 })
             });
             
@@ -177,7 +175,6 @@
         return false;
     }
     
-    // Запускаем проверку GigaPub
     setInterval(() => {
         if (!gigapubReady && gigapubCheckAttempts < 50) {
             checkGigaPubReady();
@@ -189,7 +186,6 @@
         return new Promise((resolve) => {
             console.log(`📺 Showing ad for block ${blockId}`);
             
-            // Если GigaPub готов — показываем реальную рекламу
             if (gigapubReady && typeof window.showGiga === 'function') {
                 try {
                     window.showGiga({
@@ -211,7 +207,6 @@
                     resolve(false);
                 }
             } else {
-                // ВРЕМЕННО: для теста начисляем через 1 секунду (потом убрать)
                 console.log('⚠️ GigaPub not ready, using test mode');
                 setTimeout(() => {
                     console.log('✅ Test mode: reward awarded');
@@ -221,11 +216,9 @@
         });
     }
     
-    // ============= ПРОСМОТР РЕКЛАМЫ (с защитой от двойного клика) =============
+    // ============= ПРОСМОТР РЕКЛАМЫ =============
     async function watchAd(blockId) {
-        // Защита от двойного нажатия
         if (isProcessingAd) {
-            console.log('⏳ Already processing ad, please wait');
             showNotification('Подождите, реклама уже загружается', 'info');
             return;
         }
@@ -235,23 +228,19 @@
         const block = blocks.find(b => b.id === blockId);
         if (!block) return;
         
-        // Проверка блокировки
         if (Date.now() < block.l) {
             showNotification('🔒 Блок заблокирован на 24 часа', 'error');
             return;
         }
         
-        // Проверка лимита просмотров
         if (block.v >= 15) {
-            showNotification('🔒 Блок уже достиг лимита просмотров', 'error');
+            showNotification('🔒 Блок достиг лимита', 'error');
             return;
         }
         
-        // Устанавливаем флаг, чтобы блокировать повторные клики
         isProcessingAd = true;
         hapticFeedback('light');
         
-        // Блокируем кнопку визуально
         const adBtn = document.getElementById(`adBtn_${blockId}`);
         if (adBtn) {
             adBtn.disabled = true;
@@ -261,49 +250,39 @@
         showNotification('📺 Загрузка рекламы...', 'info');
         
         try {
-            // Показываем рекламу и ждём результат
             const adSuccess = await showGigapubAd(blockId);
             
             if (adSuccess) {
                 const adReward = getRewardForCurrentLevel();
                 
-                // Начисляем награду
                 user.balance += adReward;
                 user.ads += 1;
                 block.v += 1;
                 
                 console.log(`🎬 +$${adReward.toFixed(4)} | Balance: $${user.balance}`);
                 
-                // Проверка повышения уровня
                 let leveled = false;
                 while (user.ads >= 100) {
                     user.level += 1;
                     user.ads = 0;
                     leveled = true;
-                    console.log(`⬆️ LEVEL UP! Now level ${user.level}`);
                     hapticFeedback('success');
                 }
                 
-                // Проверка блокировки блока
                 if (block.v >= 15) {
                     block.l = Date.now() + 86400000;
                     showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
                 }
                 
-                // Обновляем UI
                 fullRender();
-                
-                // Сохраняем на сервер
                 await saveToServer();
-                
                 showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
                 
                 if (leveled) {
                     showNotification(`🎉 УРОВЕНЬ ${user.level}!`, 'success');
                 }
             } else {
-                showNotification('❌ Реклама не загрузилась, попробуйте позже', 'error');
-                // Разблокируем кнопку при ошибке
+                showNotification('❌ Реклама не загрузилась', 'error');
                 if (adBtn) {
                     adBtn.disabled = false;
                     adBtn.style.opacity = '1';
@@ -311,13 +290,12 @@
             }
         } catch (error) {
             console.error('Watch ad error:', error);
-            showNotification('❌ Ошибка при загрузке рекламы', 'error');
+            showNotification('❌ Ошибка', 'error');
             if (adBtn) {
                 adBtn.disabled = false;
                 adBtn.style.opacity = '1';
             }
         } finally {
-            // Снимаем блокировку после завершения
             isProcessingAd = false;
         }
     }
@@ -495,20 +473,25 @@
         }
         
         try {
-            // Временно без серверной проверки
-            const taskKey = `task_${taskId}_completed`;
-            if (localStorage.getItem(taskKey)) {
-                showNotification('Задание уже выполнено', 'info');
+            const response = await fetch(`${API_URL}/task`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUserId, taskId })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                user.balance += reward;
+                fullRender();
+                await saveToServer();
+                hapticFeedback('success');
+                showNotification(`🎁 +$${reward} за задание!`, 'success');
+                return true;
+            } else {
+                showNotification(data.message || 'Задание уже выполнено', 'info');
                 return false;
             }
-            
-            localStorage.setItem(taskKey, 'true');
-            user.balance += reward;
-            fullRender();
-            await saveToServer();
-            hapticFeedback('success');
-            showNotification(`🎁 Получено +$${reward} за задание!`, 'success');
-            return true;
         } catch (error) {
             console.error('Task error:', error);
             return false;
@@ -642,7 +625,6 @@
             const locked = Date.now() < b.l;
             const viewsPercent = (b.v / 15) * 100;
             const statusText = locked ? t("locked") : t("active");
-            const isDisabled = locked || isProcessingAd;
             
             html += `
                 <div class="card" data-block-id="${b.id}">
@@ -657,7 +639,7 @@
                     <div class="small-bar">
                         <div class="small-fill" style="width:${viewsPercent}%"></div>
                     </div>
-                    <button class="btn watch-ad-btn" data-block-id="${b.id}" ${isDisabled ? 'disabled' : ''}>
+                    <button class="btn watch-ad-btn" data-block-id="${b.id}" ${locked ? 'disabled' : ''}>
                         ${t("watch")}
                         ${locked ? '<span class="btn-timer-text" data-block-id="' + b.id + '">(--:--:--)</span>' : ''}
                     </button>
@@ -667,7 +649,6 @@
         
         cardsDiv.innerHTML = html;
         
-        // Привязываем обработчики к кнопкам
         document.querySelectorAll('.watch-ad-btn').forEach(btn => {
             const blockId = parseInt(btn.getAttribute('data-block-id'));
             btn.addEventListener('click', (e) => {
@@ -678,7 +659,6 @@
             });
         });
         
-        // Таймеры для заблокированных блоков
         blocks.forEach(b => {
             if (Date.now() < b.l) {
                 const timerSpan = document.querySelector(`.btn-timer-text[data-block-id="${b.id}"]`);
@@ -750,8 +730,8 @@
         let referrerId = localStorage.getItem('referrerId');
         
         if (telegramUser && telegramUser.id) {
-            userId = `tg_${telegramUser.id}`;
-            console.log('✅ Telegram user:', userId);
+            userId = telegramUser.id.toString();
+            console.log('✅ Telegram user ID:', userId);
         } else {
             userId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
         }
@@ -777,27 +757,36 @@
             const data = await response.json();
             console.log('✅ Server data:', data);
             
+            // ===== ИСПРАВЛЕНО: данные приходят напрямую =====
             user = {
-                balance: data.user.balance,
-                level: data.user.level,
-                ads: data.user.ads
+                balance: data.balance || 0,
+                level: data.level || 1,
+                ads: data.ads || 0
             };
             
             blocks = [
-                { id: 1, v: data.blocks['1']?.v || 0, l: data.blocks['1']?.l || 0 },
-                { id: 2, v: data.blocks['2']?.v || 0, l: data.blocks['2']?.l || 0 },
-                { id: 3, v: data.blocks['3']?.v || 0, l: data.blocks['3']?.l || 0 }
+                { id: 1, v: data.blocks?.['1']?.v || 0, l: data.blocks?.['1']?.l || 0 },
+                { id: 2, v: data.blocks?.['2']?.v || 0, l: data.blocks?.['2']?.l || 0 },
+                { id: 3, v: data.blocks?.['3']?.v || 0, l: data.blocks?.['3']?.l || 0 }
             ];
             
-            boosts = data.boosts || { doubleIncome: false, autoClicker: false, doubleIncomeUntil: 0, autoClickerUntil: 0 };
+            boosts = {
+                doubleIncome: data.boosts?.doubleIncome || false,
+                doubleIncomeUntil: data.boosts?.doubleIncomeUntil || 0,
+                autoClicker: data.boosts?.autoClicker || false,
+                autoClickerUntil: data.boosts?.autoClickerUntil || 0
+            };
+            
+            console.log('💰 Loaded balance:', user.balance);
+            console.log('📊 Loaded blocks:', blocks);
             
             const usernameSpan = document.getElementById("username");
             if (usernameSpan) {
-                usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.user.username || 'Guest');
+                usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.username || 'User');
             }
             
             const avatarImg = document.getElementById("avatar");
-            if (avatarImg) avatarImg.src = data.user.avatar || 'https://i.pravatar.cc/100';
+            if (avatarImg) avatarImg.src = data.avatar || 'https://i.pravatar.cc/100';
             
             const userIdSpan = document.getElementById("userid");
             if (userIdSpan && telegramUser) userIdSpan.innerText = `ID: ${telegramUser.id}`;
@@ -816,7 +805,7 @@
     function updateInviteLink() {
         const inviteContainer = document.getElementById('inviteLink');
         if (inviteContainer && currentUserId) {
-            const shortId = currentUserId.replace('tg_', '').slice(0, 8);
+            const shortId = currentUserId.slice(0, 8);
             const inviteUrl = `https://t.me/${BOT_USERNAME}?start=${shortId}`;
             inviteContainer.innerHTML = `
                 <button class="btn" id="inviteBtn" style="background: #2AABEE;">📨 Пригласить друга</button>
@@ -890,17 +879,17 @@
         });
     }
     
-    // Сохранение при закрытии
     window.addEventListener('beforeunload', () => {
         if (user && user.balance > 0) {
             navigator.sendBeacon(`${API_URL}/save`, JSON.stringify({
                 userId: currentUserId,
-                user: { balance: user.balance, level: user.level, ads: user.ads }
+                balance: user.balance,
+                level: user.level,
+                ads: user.ads
             }));
         }
     });
     
-    // Добавляем CSS анимации
     const style = document.createElement('style');
     style.textContent = `
         @keyframes slideUp {
@@ -929,7 +918,6 @@
         console.log('✅ Duck Ads ready!');
     });
     
-    // Экспортируем глобальные функции
     window.watchAd = watchAd;
     window.toggleAutoMode = toggleAutoMode;
     window.toggleLanguage = toggleLanguage;

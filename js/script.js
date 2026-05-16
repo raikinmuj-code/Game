@@ -1,5 +1,4 @@
 // ============= DUCK ADS - ПОЛНЫЙ КЛИЕНТСКИЙ СКРИПТ =============
-// Сохраните этот файл как script.js и подключите в HTML
 
 (function() {
     // ============= TELEGRAM INTEGRATION =============
@@ -31,12 +30,6 @@
             }
         }
         return null;
-    }
-    
-    function sendToTelegram(event, data) {
-        if (tg) {
-            tg.sendData(JSON.stringify({ event, data, timestamp: Date.now() }));
-        }
     }
     
     function showAlert(message, callback) {
@@ -139,7 +132,9 @@
         if (!user || !blocks || !currentUserId) return false;
         
         const blocksData = {};
-        blocks.forEach((b, idx) => { blocksData[idx + 1] = { v: b.v, l: b.l }; });
+        for (let i = 0; i < blocks.length; i++) {
+            blocksData[i + 1] = { v: blocks[i].v, l: blocks[i].l };
+        }
         
         try {
             const response = await fetch(`${API_URL}/save`, {
@@ -154,11 +149,14 @@
                     boosts: boosts
                 })
             });
+            
             if (response.ok) {
                 console.log(`💾 Saved: $${user.balance}`);
                 return true;
             }
-        } catch (err) { console.error('Save error:', err); }
+        } catch (err) { 
+            console.error('Save error:', err); 
+        }
         return false;
     }
     
@@ -180,8 +178,6 @@
     }
     
     async function showGigapubAd(blockId, onRewardCallback) {
-        console.log('📺 Showing ad for block', blockId);
-        
         let attempts = 0;
         while (!gigapubReady && attempts < 30) {
             await new Promise(r => setTimeout(r, 100));
@@ -191,7 +187,7 @@
         
         if (gigapubReady && typeof window.showGiga === 'function') {
             try {
-                const result = await window.showGiga();
+                await window.showGiga();
                 if (onRewardCallback) onRewardCallback(true);
                 return;
             } catch (error) {
@@ -220,34 +216,37 @@
         
         const adReward = getRewardForCurrentLevel();
         
-        const giveReward = async () => {
-            user.balance += adReward;
-            user.ads += 1;
-            block.v += 1;
-            
-            let leveled = false;
-            while (user.ads >= 100) {
-                user.level += 1;
-                user.ads = 0;
-                leveled = true;
-            }
-            
-            if (block.v >= 15) {
-                block.l = Date.now() + 86400000;
-                showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
-            }
-            
-            fullRender();
-            await saveToServer();
-            showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
-            if (leveled) hapticFeedback('success');
-        };
+        // Начисляем награду
+        user.balance += adReward;
+        user.ads += 1;
+        block.v += 1;
         
-        showNotification('📺 Загрузка рекламы...', 'info');
-        showGigapubAd(blockId, async (success) => {
-            if (success) await giveReward();
-            else showNotification('❌ Реклама не загрузилась', 'error');
-        });
+        console.log(`🎬 Watch ad block ${blockId}: +$${adReward.toFixed(4)}, balance: $${user.balance}`);
+        
+        let leveled = false;
+        while (user.ads >= 100) {
+            user.level += 1;
+            user.ads = 0;
+            leveled = true;
+            console.log(`⬆️ LEVEL UP! Now level ${user.level}`);
+        }
+        
+        if (block.v >= 15) {
+            block.l = Date.now() + 86400000;
+            showNotification(`🔒 ${getBlockName(blockId)} заблокирован на 24 часа`, 'info');
+        }
+        
+        fullRender();
+        
+        // Сохраняем
+        const saved = await saveToServer();
+        if (saved) {
+            showNotification(`✅ +$${adReward.toFixed(4)}`, 'success');
+        } else {
+            showNotification(`⚠️ +$${adReward.toFixed(4)} но сохранение не удалось`, 'warning');
+        }
+        
+        if (leveled) hapticFeedback('success');
     }
     
     // ============= АВТО-РЕЖИМ =============
@@ -488,7 +487,6 @@
     function fullRender() {
         applyLanguageToStatic();
         
-        // Обновляем балансы
         const balanceEl = document.getElementById("balance");
         if (balanceEl) balanceEl.innerText = "$" + (user?.balance || 0).toFixed(4);
         
@@ -498,7 +496,6 @@
         const walletBalance = document.getElementById('walletBalance');
         if (walletBalance && user) walletBalance.innerText = `$${user.balance.toFixed(4)}`;
         
-        // Уровень
         const levelEl = document.getElementById("level");
         if (levelEl) levelEl.innerText = `${t("level")} ${user?.level || 1} • ${user?.ads || 0}/100`;
         
@@ -511,7 +508,6 @@
         const nextRewardSpan = document.getElementById("nextRewardValue");
         if (nextRewardSpan) nextRewardSpan.innerText = `+$${getRewardForNextLevel().toFixed(4)}`;
         
-        // Бусты
         const boostDoubleBtn = document.getElementById('boostDoubleBtn');
         if (boostDoubleBtn && boosts) {
             if (boosts.doubleIncome && boosts.doubleIncomeUntil > Date.now()) {
@@ -534,7 +530,6 @@
             }
         }
         
-        // Рекламные блоки
         renderAdBlocks();
     }
     
@@ -687,7 +682,6 @@
             
             boosts = data.boosts;
             
-            // Обновляем UI
             const usernameSpan = document.getElementById("username");
             if (usernameSpan) {
                 usernameSpan.innerText = telegramUser?.username ? '@' + telegramUser.username : (data.username || 'Guest');
@@ -774,7 +768,6 @@
         const withdrawBtn = document.getElementById('withdrawBtn');
         if (withdrawBtn) withdrawBtn.onclick = withdrawFunds;
         
-        // Задания
         document.querySelectorAll('.task-btn').forEach(btn => {
             btn.onclick = () => {
                 const taskId = btn.getAttribute('data-task');
@@ -814,7 +807,6 @@
         
         setTimeout(() => checkGigaPubReady(), 2000);
         
-        // Добавляем CSS анимации
         const style = document.createElement('style');
         style.textContent = `
             @keyframes slideUp {

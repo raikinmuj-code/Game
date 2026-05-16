@@ -70,11 +70,17 @@ async function initUser() {
         window.boosts = data.boosts;
         
         console.log(`💰 Balance: $${window.user.balance}, Level: ${window.user.level}`);
+        console.log(`📊 Blocks:`, window.blocks);
         
         // Update UI
         const usernameSpan = document.getElementById("username");
         if (usernameSpan) {
             usernameSpan.innerText = tgUser?.username ? '@' + tgUser.username : (data.username || 'Guest');
+        }
+        
+        const balanceTopSpan = document.getElementById("balanceTop");
+        if (balanceTopSpan) {
+            balanceTopSpan.innerText = `$${window.user.balance.toFixed(4)}`;
         }
         
         const avatarImg = document.getElementById("avatar");
@@ -104,13 +110,13 @@ async function initUser() {
 
 async function saveToServer() {
     if (!window.user || !window.blocks) {
-        console.log('⚠️ No data to save');
-        return;
+        console.log('⚠️ No data to save - user or blocks missing');
+        return false;
     }
     
     if (!currentUserId) {
-        console.log('⚠️ No userId');
-        return;
+        console.log('⚠️ No userId to save');
+        return false;
     }
     
     const blocksData = {};
@@ -118,35 +124,46 @@ async function saveToServer() {
         blocksData[idx + 1] = { v: b.v, l: b.l };
     });
     
+    const saveData = {
+        userId: currentUserId,
+        balance: window.user.balance,
+        level: window.user.level,
+        ads: window.user.ads,
+        blocks: blocksData,
+        boosts: window.boosts
+    };
+    
+    console.log('💾 SAVING DATA:', saveData);
+    
     try {
-        console.log('💾 Saving:', {
-            userId: currentUserId,
-            balance: window.user.balance,
-            level: window.user.level,
-            ads: window.user.ads
-        });
-        
         const response = await fetch(`${API_URL}/save`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId: currentUserId,
-                balance: window.user.balance,
-                level: window.user.level,
-                ads: window.user.ads,
-                blocks: blocksData,
-                boosts: window.boosts
-            })
+            body: JSON.stringify(saveData)
         });
         
+        const result = await response.json();
+        
         if (response.ok) {
-            console.log(`✅ Saved: balance $${window.user.balance}`);
+            console.log(`✅ SAVE SUCCESS: balance $${window.user.balance}`);
+            return true;
         } else {
-            console.log(`❌ Save error: ${response.status}`);
+            console.log(`❌ SAVE ERROR: ${response.status}`, result);
+            return false;
         }
     } catch (err) {
-        console.error('❌ Save error:', err);
+        console.error('❌ SAVE EXCEPTION:', err);
+        return false;
     }
+}
+
+// Авто-сохранение после каждого действия
+let saveTimeout = null;
+function debounceSave() {
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(() => {
+        saveToServer();
+    }, 500);
 }
 
 function updateInviteLink() {
@@ -217,6 +234,7 @@ function showNotification(message, type = 'info') {
 
 window.initUser = initUser;
 window.saveToServer = saveToServer;
+window.debounceSave = debounceSave;
 window.loadLeaderboard = loadLeaderboard;
 window.showNotification = showNotification;
 window.updateInviteLink = updateInviteLink;

@@ -174,8 +174,6 @@ async function buyBoost(boostType, cost, durationHours) {
 async function watchAd(blockId) {
     if (!window.user || !window.blocks) return;
     
-    if (window.hapticFeedback) window.hapticFeedback('light');
-    
     const block = window.blocks.find(b => b.id === blockId);
     if (!block) return;
     
@@ -188,14 +186,14 @@ async function watchAd(blockId) {
     
     const adReward = window.getRewardForCurrentLevel();
     
-    // ГЛАВНОЕ: начисляем награду
+    // Начисляем награду
     window.user.balance += adReward;
     window.user.ads += 1;
     block.v += 1;
     
-    console.log(`🎬 Watch ad: +$${adReward.toFixed(4)}, new balance: $${window.user.balance}`);
+    console.log(`🎬 +$${adReward.toFixed(4)} | New balance: $${window.user.balance}`);
     
-    // Проверяем повышение уровня
+    // Проверяем уровень
     let leveled = false;
     while (window.user.ads >= 100) {
         window.user.level += 1;
@@ -204,16 +202,16 @@ async function watchAd(blockId) {
         console.log(`⬆️ LEVEL UP! Now level ${window.user.level}`);
     }
     
-    // Проверяем блокировку блока
+    // Блокировка блока
     if (block.v >= 15) {
         block.l = Date.now() + 86400000;
-        console.log(`🔒 Block ${blockId} locked for 24 hours`);
+        console.log(`🔒 Block ${blockId} locked`);
     }
     
     // Обновляем UI
     if (window.fullRender) window.fullRender();
     
-    // СОХРАНЯЕМ на сервер
+    // СОХРАНЯЕМ!
     await window.saveToServer();
     
     if (window.showNotification) {
@@ -224,7 +222,6 @@ async function watchAd(blockId) {
         window.hapticFeedback('success');
     }
 }
-
 function collectAutoClickerIncome() {
     if (!window.boosts?.autoClicker || window.boosts.autoClickerUntil <= Date.now()) return false;
     if (!window.user || !window.blocks) return false;
